@@ -381,4 +381,29 @@ export class AliyunESA implements CdnProvider {
     this.error = 'ESA 站点配置暂未支持';
     return false;
   }
+
+  async purge(urls: string[], type: 'url' | 'dir'): Promise<string | false> {
+    if (!this.siteId) {
+      this.error = '缺少站点 SiteId';
+      return false;
+    }
+    const data = await this.call({
+      Action: 'PurgeCaches',
+      SiteId: this.siteId,
+      Type: type === 'dir' ? 'directory' : 'file',
+      Content: urls.join('\n'),
+    });
+    if (!data) return false;
+    return 'ok';
+  }
+
+  async preheat(urls: string[]): Promise<string | false> {
+    if (!this.siteId) {
+      this.error = '缺少站点 SiteId';
+      return false;
+    }
+    const data = await this.call({ Action: 'PreloadCaches', SiteId: this.siteId, Content: urls.join('\n') });
+    if (!data) return false;
+    return 'ok';
+  }
 }

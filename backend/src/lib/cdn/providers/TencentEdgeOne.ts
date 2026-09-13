@@ -398,4 +398,117 @@ export class TencentEdgeOne implements CdnProvider {
     if (!data) return false;
     return data.TaskId || data.JobId || 'ok';
   }
+
+  private async describeSecurityPolicy(domain: string): Promise<any[] | false> {
+    const zoneId = await this.findZone(domain);
+    if (!zoneId) return false;
+    const data = await this.send('DescribeSecurityPolicy', { ZoneId: zoneId, Entity: 'ZoneDefaultPolicy' });
+    if (!data) return false;
+    return data.SecurityPolicy?.CustomRules?.Rules || [];
+  }
+
+  async getAccess(domain: string): Promise<Record<string, any> | false> {
+    const rules = await this.describeSecurityPolicy(domain);
+    if (rules === false) return false;
+    const out: Record<string, any> = { referer_mode: 'off', referer_list: [], ip_mode: 'off', ip_list: [], ua_list: [] };
+    for (const r of rules) {
+      const name = r?.Name;
+      const condition = String(r?.Condition || '');
+      if (name === 'dnsmgr_ip_acl') {
+        out.ip_mode = condition.includes('not') ? 'whitelist' : 'blacklist';
+        out.ip_list = this.parseConditionList(condition);
+      } else if (name === 'dnsmgr_referer') {
+        out.referer_mode = condition.includes('not') ? 'whitelist' : 'blacklist';
+        out.referer_list = this.parseConditionList(condition);
+      } else if (name === 'dnsmgr_user_agent') {
+        out.ua_list = this.parseConditionList(condition);
+      }
+    }
+    return out;
+  }
+
+  async setAccess(domain: string, config: Record<string, any>): Promise<boolean> {
+    const zoneId = await this.findZone(domain);
+    if (!zoneId) {
+      this.error = '未找到该域名的 EdgeOne 站点';
+      return false;
+    }
+    const data = await this.send('DescribeSecurityPolicy', { ZoneId: zoneId, Entity: 'ZoneDefaultPolicy' });
+    if (data === false) return false;
+    const existing = data?.SecurityPolicy?.CustomRules?.Rules || [];
+    const keep = existing
+      .filter((r: any) => !String(r?.Name || '').startsWith('dnsmgr_'))
+      .map((r: any) => this.copyCustomRule(r));
+    const additions = this.buildAccessRules(config);
+    const ok = await this.send('ModifySecurityPolicy', {
+      ZoneId: zoneId,
+      Entity: 'ZoneDefaultPolicy',
+      SecurityPolicy: { CustomRules: { Rules: [...keep, ...additions] } },
+    });
+    return ok !== false;
+  }
+
+  private copyCustomRule(r: any): any {
+    return {
+      Id: r?.Id,
+      Name: r?.Name,
+      Condition: r?.Condition,
+      Enabled: r?.Enabled ?? 'on',
+      RuleType: r?.RuleType,
+      Priority: r?.Priority,
+      Action: r?.Action ? { Name: r.Action.Name } : undefined,
+    };
+  }
+
+  private buildAccessRules(config: Record<string, any>): any[] {
+    const rules: any[] = [];
+    const refererMode = config.referer_mode || 'off';
+    if (refererMode === 'whitelist' || refererMode === 'blacklist') {
+      const cond = `\${http.request.headers['referer']} like ${this.conditionList(config.referer_list || [])}`;
+      rules.push({
+        Name: 'dnsmgr_referer',
+        Condition: refererMode === 'whitelist' ? `not (${cond})` : cond,
+        Enabled: 'on',
+        RuleType: 'PreciseMatchRule',
+        Priority: 10,
+        Action: { Name: 'Deny' },
+      });
+    }
+    const ipMode = config.ip_mode || 'off';
+    if (ipMode === 'whitelist' || ipMode === 'blacklist') {
+      const cond = `\${http.request.ip} in ${this.conditionList(config.ip_list || [])}`;
+      rules.push({
+        Name: 'dnsmgr_ip_acl',
+        Condition: ipMode === 'whitelist' ? `not (${cond})` : cond,
+        Enabled: 'on',
+        RuleType: 'BasicAccessRule',
+        Action: { Name: 'Deny' },
+      });
+    }
+    if ((config.ua_list || []).length) {
+      rules.push({
+        Name: 'dnsmgr_user_agent',
+        Condition: `\${http.request.headers['user-agent']} like ${this.conditionList(config.ua_list || [])}`,
+        Enabled: 'on',
+        RuleType: 'PreciseMatchRule',
+        Priority: 12,
+        Action: { Name: 'Deny' },
+      });
+    }
+    return rules;
+  }
+
+  private conditionList(values: string[]): string {
+    const escaped = values.map((v) => "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'");
+    return `[${escaped.join(', ')}]`;
+  }
+
+  private parseConditionList(condition: string): string[] {
+    const m = condition.match(/\[([^\]]*)\]/);
+    if (!m) return [];
+    return m[1]
+      .split(',')
+      .map((s) => s.trim().replace(/^'|'$/g, '').replace(/\\'/g, "'").replace(/\\\\/g, '\\'))
+      .filter(Boolean);
+  }
 }
