@@ -14,6 +14,30 @@ function safeJson(s: string): Record<string, any> {
   }
 }
 
+const allRecordsCache = new Map<string, { at: number; list: any[] }>();
+const RECORDS_TTL = 60_000;
+
+/** 拉取某域名全部解析记录（带 60s 内存缓存），用于统计子域名记录数 */
+async function fetchAllRecords(d: any): Promise<any[]> {
+  const cached = allRecordsCache.get(d.name);
+  if (cached && Date.now() - cached.at < RECORDS_TTL) return cached.list;
+  let list: any[] = [];
+  const acct = await queryOne(`SELECT * FROM ${table('account')} WHERE id = ?`, [d.aid]);
+  if (acct) {
+    const provider = getDnsProvider(acct.type, safeJson(acct.config), d.name, d.thirdid);
+    if (provider) {
+      for (let page = 1; page <= 10; page++) {
+        const r = await provider.getDomainRecords(page, 500, null, null, null, null, null, null);
+        if (r === false || !r.list || !r.list.length) break;
+        list = list.concat(r.list);
+        if (list.length >= (r.total || 0)) break;
+      }
+    }
+  }
+  allRecordsCache.set(d.name, { at: Date.now(), list });
+  return list;
+}
+
 async function getUserPerms(req: any): Promise<{ admin: boolean; perms: SubPermission[] }> {
   if (Number(req.user?.level ?? 0) >= 2) return { admin: true, perms: [] };
   return { admin: false, perms: await getUserPermissions(req.user.uid) };
@@ -82,8 +106,11 @@ export default async function domainRoutes(app: FastifyInstance) {
       for (const p of acc.perms) {
         const d: any = byName.get(p.domain);
         if (!d) continue;
+        const all = await fetchAllRecords(d);
+        const cnt = p.sub ? all.filter((r: any) => isRecordInScope(r.Name, p.sub)).length : (all.length || Number(d.recordcount || 0));
         out.push({
           ...d,
+          recordcount: cnt,
           _key: `${d.id}:${p.sub || ''}`,
           _sub: p.sub || '',
           _readonly: Number(p.readonly || 0),
