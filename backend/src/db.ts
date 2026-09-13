@@ -15,6 +15,7 @@ function buildPool(cfg: DbConfig): mysql.Pool {
     waitForConnections: true,
     connectionLimit: 10,
     charset: 'utf8mb4',
+    dateStrings: true,
   });
 }
 
