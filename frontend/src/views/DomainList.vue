@@ -4,7 +4,7 @@
       <template #header>
         <div class="toolbar">
           <span class="title">域名管理</span>
-          <n-space>
+          <n-space v-if="isAdmin">
             <n-button v-if="checked.length" size="small" type="success" @click="batchNotice(1)">开启提醒</n-button>
             <n-button v-if="checked.length" size="small" @click="batchNotice(0)">关闭提醒</n-button>
             <n-button @click="router.push('/expire-notice')">到期提醒设置</n-button>
@@ -22,7 +22,7 @@
         :loading="loading"
         :pagination="false"
         :bordered="false"
-        :row-key="(row: any) => row.id"
+        :row-key="(row: any) => row._key || row.id"
         @update:checked-row-keys="(k: any[]) => (checked = k)"
       />
       <n-empty class="list-empty" v-if="!loading && !domains.length" description="暂无域名，点击「导入域名」从 DNS 账户接入" />
@@ -65,15 +65,16 @@
 </template>
 
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue';
+import { computed, h, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, NSpace, NTag, NEllipsis, useMessage, useDialog } from 'naive-ui';
 import { CloudDownloadOutline, RefreshOutline } from '@vicons/ionicons5';
-import { api } from '../api';
+import { api, getUser } from '../api';
 
 const router = useRouter();
 const message = useMessage();
 const dialog = useDialog();
+const isAdmin = computed(() => (getUser()?.level || 0) >= 2);
 const loading = ref(false);
 const domains = ref<any[]>([]);
 const checked = ref<string[]>([]);
@@ -86,13 +87,25 @@ const showCategory = ref(false);
 const categoryName = ref('');
 const importing = ref(false);
 
-const columns = [
-  { type: 'selection', width: 40 },
-  { title: 'ID', key: 'id', width: 60 },
-  { title: '域名', key: 'name', render: (row: any) => h(NEllipsis, { style: 'max-width:220px' }, { default: () => row.name }) },
-  { title: '分类', key: 'category_name', width: 120 },
-  { title: '记录数', key: 'recordcount', width: 90 },
-  {
+const columns = computed(() => {
+  const cols: any[] = [];
+  if (isAdmin.value) cols.push({ type: 'selection', width: 40 });
+  cols.push({ title: 'ID', key: 'id', width: 60 });
+  cols.push({
+    title: '域名',
+    key: 'name',
+    render: (row: any) =>
+      h(NSpace, { size: 6, align: 'center', wrap: false }, {
+        default: () =>
+          [
+            h(NEllipsis, { style: 'max-width:220px' }, { default: () => row.name }),
+            !isAdmin.value && row._readonly === 1 ? h(NTag, { size: 'tiny', type: 'warning', bordered: false }, { default: () => '只读' }) : null,
+          ].filter(Boolean),
+      }),
+  });
+  cols.push({ title: '分类', key: 'category_name', width: 120 });
+  cols.push({ title: '记录数', key: 'recordcount', width: 90 });
+  cols.push({
     title: '到期时间',
     key: 'expiretime',
     width: 200,
@@ -101,42 +114,34 @@ const columns = [
       const expired = val && new Date(val) < new Date();
       const text = val ? String(val).slice(0, 19) : (row.checkstatus === 2 ? '查询失败' : '未查询');
       const color = expired ? '#d03050' : row.checkstatus === 2 ? '#f0a020' : undefined;
-      return h(NSpace, { size: 4, align: 'center' }, {
-        default: () => [
-          h('span', { style: color ? { color } : undefined }, text || '-'),
-          h(NButton, {
-            size: 'tiny',
-            quaternary: true,
-            title: '刷新到期时间',
-            onClick: () => updateDate(row),
-          }, { icon: () => h(RefreshOutline) }),
-        ],
-      });
+      const children: any[] = [h('span', { style: color ? { color } : undefined }, text || '-')];
+      if (isAdmin.value) {
+        children.push(h(NButton, { size: 'tiny', quaternary: true, title: '刷新到期时间', onClick: () => updateDate(row) }, { icon: () => h(RefreshOutline) }));
+      }
+      return h(NSpace, { size: 4, align: 'center' }, { default: () => children });
     },
-  },
-  {
+  });
+  cols.push({
     title: '到期提醒',
     key: 'is_notice',
     width: 100,
     render(row: any) {
-      return h(NTag, { size: 'small', type: row.is_notice == 1 ? 'success' : 'default', bordered: false, onClick: () => toggleNotice(row), style: 'cursor:pointer' }, { default: () => (row.is_notice == 1 ? '已开启' : '未开启') });
+      return h(NTag, { size: 'small', type: row.is_notice == 1 ? 'success' : 'default', bordered: false, onClick: isAdmin.value ? () => toggleNotice(row) : undefined, style: isAdmin.value ? 'cursor:pointer' : undefined }, { default: () => (row.is_notice == 1 ? '已开启' : '未开启') });
     },
-  },
-  { title: '添加时间', key: 'addtime', width: 170 },
-  {
+  });
+  cols.push({ title: '添加时间', key: 'addtime', width: 170 });
+  cols.push({
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: isAdmin.value ? 200 : 120,
     render(row: any) {
-      return h(NSpace, null, {
-        default: () => [
-          h(NButton, { size: 'small', type: 'primary', onClick: () => gotoRecords(row) }, { default: () => '解析记录' }),
-          h(NButton, { size: 'small', type: 'error', onClick: () => delDomain(row) }, { default: () => '删除' }),
-        ],
-      });
+      const btns: any[] = [h(NButton, { size: 'small', type: 'primary', onClick: () => gotoRecords(row) }, { default: () => '解析记录' })];
+      if (isAdmin.value) btns.push(h(NButton, { size: 'small', type: 'error', onClick: () => delDomain(row) }, { default: () => '删除' }));
+      return h(NSpace, null, { default: () => btns });
     },
-  },
-];
+  });
+  return cols;
+});
 
 async function loadDomains() {
   loading.value = true;
@@ -192,7 +197,8 @@ async function doAddCategory() {
 }
 
 function gotoRecords(row: any) {
-  window.open(`/domains/${row.id}/records`, '_self');
+  const q = row._sub ? `?sub=${encodeURIComponent(row._sub)}` : '';
+  window.open(`/domains/${row.id}/records${q}`, '_self');
 }
 
 async function toggleNotice(row: any) {

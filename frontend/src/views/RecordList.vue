@@ -91,6 +91,7 @@ const domainId = Number(route.params.id);
 const domainName = ref('');
 const accountType = ref('');
 const isAdmin = computed(() => (getUser()?.level || 0) >= 2);
+const subFilter = computed(() => (route.query.sub as string) || '');
 const access = ref<{ admin: boolean; readonly: boolean; writable: boolean }>({ admin: true, readonly: false, writable: true });
 
 const loading = ref(false);
@@ -181,7 +182,7 @@ const columns = [
 
 async function loadRecords() {
   loading.value = true;
-  const res = await api<any>('GET', `/domains/${domainId}/records`, { page: page.value, pagesize: pageSize.value });
+  const res = await api<any>('GET', `/domains/${domainId}/records`, { page: page.value, pagesize: pageSize.value, subdomain: subFilter.value || undefined });
   if (res.code === 0) {
     records.value = res.data.list;
     total.value = res.data.total;

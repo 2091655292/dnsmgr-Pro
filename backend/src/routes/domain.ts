@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { query, queryOne, table } from '../db.js';
 import { getDnsProvider } from '../lib/dns/factory.js';
-import { getUserPermissions, matchPermission, isRecordInScope, type SubPermission } from '../auth.js';
+import { getUserPermissions, matchPermission, isRecordInScope, checkLevel, type SubPermission } from '../auth.js';
 
 const authenticate = (app: FastifyInstance) => ({ preHandler: (app as any).authenticate });
 
@@ -77,8 +77,21 @@ export default async function domainRoutes(app: FastifyInstance) {
     const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c.name]));
     let data = rows.map((r: any) => ({ ...r, category_name: catMap[r.cid] || '' }));
     if (!acc.admin) {
-      const allowed = new Set(acc.perms.map((p) => p.domain));
-      data = data.filter((r: any) => allowed.has(r.name));
+      const byName = new Map(data.map((r: any) => [r.name, r]));
+      const out: any[] = [];
+      for (const p of acc.perms) {
+        const d: any = byName.get(p.domain);
+        if (!d) continue;
+        out.push({
+          ...d,
+          _key: `${d.id}:${p.sub || ''}`,
+          _sub: p.sub || '',
+          _readonly: Number(p.readonly || 0),
+          _base_name: d.name,
+          name: p.sub ? `${p.sub}.${d.name}` : d.name,
+        });
+      }
+      data = out;
     }
     return { code: 0, data };
   });
@@ -109,6 +122,7 @@ export default async function domainRoutes(app: FastifyInstance) {
 
   // 导入域名
   app.post('/api/domains', auth, async (req: any) => {
+    if (!checkLevel(req.user, 2)) return { code: -1, msg: '无权限' };
     const { aid, domain, thirdid, recordcount } = req.body || {};
     if (!aid || !domain) return { code: -1, msg: '参数不完整' };
     const exists = await queryOne(`SELECT id FROM ${table('domain')} WHERE name = ?`, [domain]);
@@ -122,6 +136,7 @@ export default async function domainRoutes(app: FastifyInstance) {
   });
 
   app.delete('/api/domains/:id', auth, async (req: any) => {
+    if (!checkLevel(req.user, 2)) return { code: -1, msg: '无权限' };
     const { id } = req.params as any;
     await query(`DELETE FROM ${table('domain')} WHERE id = ?`, [id]);
     return { code: 0, msg: '删除成功' };
