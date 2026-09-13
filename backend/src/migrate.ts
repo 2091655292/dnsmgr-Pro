@@ -32,6 +32,21 @@ export async function migrate(): Promise<void> {
       KEY email (email)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   );
+
+  await query(
+    `CREATE TABLE IF NOT EXISTS ${table('cdn_cache_task')} (
+      id int(11) unsigned NOT NULL AUTO_INCREMENT,
+      url varchar(500) NOT NULL,
+      type varchar(20) NOT NULL,
+      provider varchar(20) NOT NULL,
+      task_id varchar(255) DEFAULT NULL,
+      status tinyint(1) NOT NULL DEFAULT '0',
+      msg varchar(255) DEFAULT NULL,
+      addtime datetime NOT NULL,
+      PRIMARY KEY (id),
+      KEY addtime (addtime)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+  );
 }
 
 async function ensureColumn(tableName: string, column: string, definition: string): Promise<void> {

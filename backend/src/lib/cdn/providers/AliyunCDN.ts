@@ -226,4 +226,65 @@ export class AliyunCDN implements CdnProvider {
     }
     return true;
   }
+
+  async purge(urls: string[], type: 'url' | 'dir'): Promise<string | false> {
+    const data = await this.call({
+      Action: 'RefreshObjectCaches',
+      ObjectPath: urls.join('\n'),
+      ObjectType: type === 'dir' ? 'Directory' : 'File',
+    });
+    if (!data) return false;
+    return data.RefreshTaskId || 'ok';
+  }
+
+  async preheat(urls: string[]): Promise<string | false> {
+    const data = await this.call({ Action: 'PushObjectCache', ObjectPath: urls.join('\n') });
+    if (!data) return false;
+    return data.PushTaskId || 'ok';
+  }
+
+  async setAccess(domain: string, config: Record<string, any>): Promise<boolean> {
+    const functions = this.buildAccessFunctions(config);
+    const names = [
+      'referer_white_list_set',
+      'referer_black_list_set',
+      'ip_allow_list_set',
+      'ip_black_list_set',
+      'ua_black_list_set',
+      'ua_white_list_set',
+    ].join(',');
+    await this.deleteDomainConfig(domain, names);
+    if (!functions.length) return true;
+    return (await this.call({ Action: 'BatchSetCdnDomainConfig', DomainNames: domain, Functions: JSON.stringify(functions) })) !== false;
+  }
+
+  private buildAccessFunctions(config: Record<string, any>): any[] {
+    const functions: any[] = [];
+    const refererMode = config.referer_mode || 'off';
+    if (refererMode === 'whitelist' || refererMode === 'blacklist') {
+      const allowEmpty = config.referer_list?.length ? 'off' : 'on';
+      const value = (config.referer_list || []).map((d: string) => d.replace(/^\*\./, '.').replace(/^\./, '')).join(',');
+      functions.push({
+        functionName: refererMode === 'whitelist' ? 'referer_white_list_set' : 'referer_black_list_set',
+        functionArgs: [
+          { argName: refererMode === 'whitelist' ? 'refer_domain_allow_list' : 'refer_domain_black_list', argValue: value },
+          { argName: 'allow_empty', argValue: allowEmpty },
+        ],
+      });
+    }
+    const ipMode = config.ip_mode || 'off';
+    if (ipMode === 'whitelist' || ipMode === 'blacklist') {
+      functions.push({
+        functionName: ipMode === 'whitelist' ? 'ip_allow_list_set' : 'ip_black_list_set',
+        functionArgs: [{ argName: 'ip_list', argValue: (config.ip_list || []).join(',') }],
+      });
+    }
+    if (config.ua_list?.length) {
+      functions.push({
+        functionName: 'ua_black_list_set',
+        functionArgs: [{ argName: 'ua_list', argValue: (config.ua_list || []).join(';') }],
+      });
+    }
+    return functions;
+  }
 }

@@ -20,6 +20,19 @@ function parseStatTime(v: any): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function domainFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    const m = String(url).match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/);
+    return m ? m[1].split(':')[0] : '';
+  }
+}
+
+function dedupe(list: string[]): string[] {
+  return [...new Set(list.map((s) => String(s).trim()).filter(Boolean))];
+}
+
 function safeJson(s: string): Record<string, any> {
   try {
     const v = JSON.parse(s);
@@ -363,6 +376,107 @@ export default async function cdnRoutes(app: FastifyInstance) {
     ensureSections(merged, type, merged.labels.length);
     if (errors.length) (merged as any)._errors = errors;
     return { code: 0, data: merged };
+  });
+
+  // 按域名分组分发刷新/预热操作
+  async function dispatchCacheOp(op: 'purge' | 'preheat', type: string, urls: string[]) {
+    const grouped: Record<string, { route: string; provider: any; urls: string[] }> = {};
+    const failed: { url: string; msg: string }[] = [];
+    for (const url of urls) {
+      const domain = domainFromUrl(url);
+      if (!domain) {
+        failed.push({ url, msg: 'URL 格式错误' });
+        continue;
+      }
+      const row = await queryOne(`SELECT * FROM ${table('cdn_domain')} WHERE name = ?`, [domain]);
+      if (!row) {
+        failed.push({ url, msg: `未找到加速域名 ${domain}` });
+        continue;
+      }
+      const provider: any = await cdnForRow(row);
+      if (!provider) {
+        failed.push({ url, msg: 'CDN 账户不存在' });
+        continue;
+      }
+      const key = `${row.route}#${row.aid}`;
+      if (!grouped[key]) grouped[key] = { route: row.route, provider, urls: [] };
+      grouped[key].urls.push(url);
+    }
+
+    const success: { url: string; taskId: string | null }[] = [];
+    for (const key of Object.keys(grouped)) {
+      const g = grouped[key];
+      const fn = g.provider ? g.provider[op] : undefined;
+      if (typeof fn !== 'function') {
+        for (const u of g.urls) failed.push({ url: u, msg: '该厂商暂不支持此操作' });
+        continue;
+      }
+      const taskId = op === 'purge' ? await fn(g.urls, type) : await fn(g.urls);
+      const status = taskId === false ? 1 : 0;
+      const errMsg = taskId === false ? g.provider.getError?.() || '提交失败' : null;
+      for (const u of g.urls) {
+        if (taskId === false) {
+          failed.push({ url: u, msg: errMsg || '提交失败' });
+        } else {
+          success.push({ url: u, taskId: typeof taskId === 'string' ? taskId : null });
+        }
+        const taskType = type === 'dir' ? 'dir' : op === 'preheat' ? 'preheat' : 'url';
+        await query(
+          `INSERT INTO ${table('cdn_cache_task')} (url, type, provider, task_id, status, msg, addtime) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+          [u, taskType, g.route, typeof taskId === 'string' ? taskId : null, status, errMsg],
+        );
+      }
+    }
+    return { success, failed };
+  }
+
+  // 缓存刷新
+  app.post('/api/cdn/purge', auth, async (req: any) => {
+    const { type, urls } = req.body || {};
+    const list = dedupe(Array.isArray(urls) ? urls : []);
+    if (!list.length) return { code: -1, msg: '请填写需要刷新的 URL' };
+    const result = await dispatchCacheOp('purge', type === 'dir' ? 'dir' : 'url', list);
+    return { code: 0, ...result };
+  });
+
+  // 缓存预热
+  app.post('/api/cdn/preheat', auth, async (req: any) => {
+    const { urls } = req.body || {};
+    const list = dedupe(Array.isArray(urls) ? urls : []);
+    if (!list.length) return { code: -1, msg: '请填写需要预热的 URL' };
+    const result = await dispatchCacheOp('preheat', 'preheat', list);
+    return { code: 0, ...result };
+  });
+
+  // 刷新/预热历史
+  app.get('/api/cdn/cache-tasks', auth, async () => {
+    const rows = await query(`SELECT * FROM ${table('cdn_cache_task')} ORDER BY id DESC LIMIT 200`);
+    return { code: 0, data: rows };
+  });
+
+  // 访问控制 - 查询
+  app.get('/api/cdn/domains/:id/access', auth, async (req: any) => {
+    const { id } = req.params as any;
+    const row = await loadCdnDomain(id);
+    if (!row) return { code: -1, msg: '加速域名不存在' };
+    const def = { referer_mode: 'off', referer_list: [], ip_mode: 'off', ip_list: [], ua_list: [] };
+    const provider: any = await cdnForRow(row);
+    if (provider && typeof provider.getAccess === 'function') {
+      const cfg = await provider.getAccess(row.name);
+      if (cfg) return { code: 0, data: { ...def, ...cfg } };
+    }
+    return { code: 0, data: def };
+  });
+
+  // 访问控制 - 保存
+  app.post('/api/cdn/domains/:id/access', auth, async (req: any) => {
+    const { id } = req.params as any;
+    const row = await loadCdnDomain(id);
+    if (!row) return { code: -1, msg: '加速域名不存在' };
+    const provider: any = await cdnForRow(row);
+    if (!provider || typeof provider.setAccess !== 'function') return { code: -1, msg: '该厂商暂不支持访问控制配置' };
+    if (!(await provider.setAccess(row.name, req.body || {}))) return { code: -1, msg: '访问控制更新失败，' + (provider.getError?.() || '') };
+    return { code: 0, msg: '访问控制更新成功' };
   });
 }
 

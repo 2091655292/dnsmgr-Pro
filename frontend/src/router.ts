@@ -17,6 +17,7 @@ const routes = [
       { path: 'cdn-accounts', component: () => import('./views/CdnAccount.vue'), meta: { title: 'CDN 账户' } },
       { path: 'cdn-domains', component: () => import('./views/CdnDomain.vue'), meta: { title: 'CDN 域名' } },
       { path: 'statistics', component: () => import('./views/Statistics.vue'), meta: { title: '数据统计' } },
+      { path: 'cache-refresh', component: () => import('./views/CachePurge.vue'), meta: { title: '缓存刷新' } },
       { path: 'cdn-zones', component: () => import('./views/CdnZone.vue'), meta: { title: 'CDN 站点设置' } },
       { path: 'cdn-domains/:id/setting', component: () => import('./views/CdnDomainSetting.vue'), meta: { title: 'CDN 配置' } },
       { path: 'cloudflare/domains/:id/hostnames', component: () => import('./views/CfHostnames.vue'), meta: { title: 'Cloudflare 自定义主机名' } },

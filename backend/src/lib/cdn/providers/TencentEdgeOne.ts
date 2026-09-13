@@ -371,4 +371,31 @@ export class TencentEdgeOne implements CdnProvider {
   async updateZoneSetting(zoneId: string, zoneConfig: Record<string, any>) {
     return (await this.send('ModifyL7AccSetting', { ZoneId: zoneId, ZoneConfig: zoneConfig })) !== false;
   }
+
+  async purge(urls: string[], type: 'url' | 'dir'): Promise<string | false> {
+    const zoneId = await this.findZone(urls[0] || '');
+    if (!zoneId) {
+      this.error = '未找到该域名的 EdgeOne 站点';
+      return false;
+    }
+    const data = await this.send('CreatePurgeTask', {
+      ZoneId: zoneId,
+      Type: type === 'dir' ? 'purge_prefix' : 'purge_url',
+      Targets: urls,
+      EncodeUrl: false,
+    });
+    if (!data) return false;
+    return data.TaskId || data.JobId || 'ok';
+  }
+
+  async preheat(urls: string[]): Promise<string | false> {
+    const zoneId = await this.findZone(urls[0] || '');
+    if (!zoneId) {
+      this.error = '未找到该域名的 EdgeOne 站点';
+      return false;
+    }
+    const data = await this.send('CreatePrefetchTask', { ZoneId: zoneId, Targets: urls, EncodeUrl: false });
+    if (!data) return false;
+    return data.TaskId || data.JobId || 'ok';
+  }
 }

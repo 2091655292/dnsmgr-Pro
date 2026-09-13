@@ -157,4 +157,48 @@ export class TencentCDN implements CdnProvider {
     if (forceRedirect) https.ForceRedirect = { Switch: 'on', RedirectType: 'https' };
     return (await this.send('UpdateDomainConfig', { Domain: domain, Https: https })) !== false;
   }
+
+  async purge(urls: string[], type: 'url' | 'dir'): Promise<string | false> {
+    const data =
+      type === 'dir'
+        ? await this.send('PurgePathCache', { Paths: urls, FlushType: 'flush' })
+        : await this.send('PurgeUrlsCache', { Urls: urls });
+    if (!data) return false;
+    return data.TaskId || 'ok';
+  }
+
+  async preheat(urls: string[]): Promise<string | false> {
+    const data = await this.send('PushUrlsCache', { Urls: urls });
+    if (!data) return false;
+    return data.TaskId || 'ok';
+  }
+
+  async setAccess(domain: string, config: Record<string, any>): Promise<boolean> {
+    const updates: Record<string, any> = this.buildAccessConfig(config);
+    return (await this.send('UpdateDomainConfig', { Domain: domain, ...updates })) !== false;
+  }
+
+  private buildAccessConfig(config: Record<string, any>): Record<string, any> {
+    const out: Record<string, any> = {};
+    const refererMode = config.referer_mode || 'off';
+    if (refererMode === 'off') {
+      out.Referer = { Switch: 'off' };
+    } else {
+      out.Referer = {
+        Switch: 'on',
+        RefererRules: [{ RuleType: 'all', RulePaths: ['*'], RefererType: refererMode, AllowEmpty: true, Rules: config.referer_list || [] }],
+      };
+    }
+    const ipMode = config.ip_mode || 'off';
+    if (ipMode === 'off') {
+      out.IpFilter = { Switch: 'off' };
+    } else {
+      out.IpFilter = { Switch: 'on', FilterType: ipMode, Filters: config.ip_list || [] };
+    }
+    const uaList = config.ua_list || [];
+    out.UserAgentFilter = uaList.length
+      ? { Switch: 'on', FilterRules: [{ RuleType: 'all', RulePaths: ['*'], Value: uaList }] }
+      : { Switch: 'off' };
+    return out;
+  }
 }

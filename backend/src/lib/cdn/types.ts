@@ -29,4 +29,8 @@ export interface CdnProvider {
   updateZoneSetting?(zoneId: string, zoneConfig: Record<string, any>): Promise<boolean>;
   getZones?(): Promise<any[]>;
   setZoneId?(zoneId: string): void;
+  purge?(urls: string[], type: 'url' | 'dir'): Promise<string | false>;
+  preheat?(urls: string[]): Promise<string | false>;
+  getAccess?(domain: string): Promise<Record<string, any> | false>;
+  setAccess?(domain: string, config: Record<string, any>): Promise<boolean>;
 }
