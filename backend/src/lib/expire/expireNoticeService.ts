@@ -22,6 +22,32 @@ function whoisLookup(domain: string): Promise<string> {
   });
 }
 
+/** RDAP 查询（HTTPS），作为 whois(43端口) 受限时的备用方案 */
+async function rdapLookup(domain: string): Promise<{ creationDate: string | null; expirationDate: string | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'dnsmgr-pro' },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error('rdap查询失败');
+    const data: any = await res.json();
+    let expiration: string | null = null;
+    let creation: string | null = null;
+    for (const e of data.events || []) {
+      if (e.eventAction === 'expiration' && !expiration) expiration = e.eventDate;
+      if (e.eventAction === 'registration' && !creation) creation = e.eventDate;
+    }
+    return {
+      creationDate: creation ? parseDateValue(String(creation)) : null,
+      expirationDate: expiration ? parseDateValue(String(expiration)) : null,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function parseDateValue(raw: string): string | null {
   let s = (raw || '').trim();
   if (!s) return null;
@@ -69,8 +95,14 @@ function parseWhoisData(raw: string): { creationDate: string | null; expirationD
 }
 
 export async function getDomainDate(domain: string): Promise<{ regTime: string | null; expireTime: string }> {
-  const raw = await whoisLookup(domain);
-  const { creationDate, expirationDate } = parseWhoisData(raw);
+  try {
+    const raw = await whoisLookup(domain);
+    const { creationDate, expirationDate } = parseWhoisData(raw);
+    if (expirationDate) return { regTime: creationDate, expireTime: expirationDate };
+  } catch {
+    // whois(43端口) 受限，改用 RDAP
+  }
+  const { creationDate, expirationDate } = await rdapLookup(domain);
   if (!expirationDate) throw new Error('域名到期时间未知');
   return { regTime: creationDate, expireTime: expirationDate };
 }

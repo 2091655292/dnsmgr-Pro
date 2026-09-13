@@ -111,6 +111,8 @@ export default async function domainRoutes(app: FastifyInstance) {
         out.push({
           ...d,
           recordcount: cnt,
+          expiretime: p.expiretime || d.expiretime || null,
+          checkstatus: p.expiretime ? 1 : d.checkstatus,
           _key: `${d.id}:${p.sub || ''}`,
           _sub: p.sub || '',
           _readonly: Number(p.readonly || 0),
