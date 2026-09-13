@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { query, queryOne, table } from '../db.js';
 import { getDnsProvider } from '../lib/dns/factory.js';
 import { getUserPermissions, matchPermission, isRecordInScope, checkLevel, type SubPermission } from '../auth.js';
+import { localResolve, recordValueMatches } from '../lib/dns/localResolve.js';
 
 const authenticate = (app: FastifyInstance) => ({ preHandler: (app as any).authenticate });
 
@@ -196,6 +197,37 @@ export default async function domainRoutes(app: FastifyInstance) {
     }
     (res as any)._access = buildAccess(acc, info.domain.name);
     return { code: 0, data: res };
+  });
+
+  // 本地解析检测（单条记录），返回 active/not_found/mismatch
+  app.post('/api/domains/:id/records/check', auth, async (req: any) => {
+    const { id } = req.params as any;
+    const info = await getDomainWithAccount(id);
+    if (!info) return { code: -1, msg: '域名或账户不存在' };
+    const acc = await getUserPerms(req);
+    const b = req.body || {};
+    const name = String(b.name ?? '').trim();
+    const type = String(b.type ?? '').trim();
+    const rawValue = Array.isArray(b.value) ? b.value[0] : b.value;
+    if (!name || !type || rawValue === undefined || rawValue === null || rawValue === '') {
+      return { code: -1, msg: '参数不能为空' };
+    }
+    const supported = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'CAA', 'PTR'];
+    if (!supported.includes(type)) return { code: -1, msg: '该记录类型暂不支持检测' };
+    if (!acc.admin) {
+      const m = matchPermission(acc.perms, info.domain.name, name);
+      if (m < 0) return { code: -1, msg: '无权限操作该子域名' };
+    }
+    const fullDomain = (name === '@' ? info.domain.name : `${name}.${info.domain.name}`).toLowerCase();
+    const actual = await localResolve(fullDomain, type);
+    if (!actual.length) {
+      return { code: 0, data: { status: 'not_found', message: '未查询到该解析记录', actual: [] } };
+    }
+    const expected = String(rawValue);
+    if (recordValueMatches(expected, actual)) {
+      return { code: 0, data: { status: 'active', actual } };
+    }
+    return { code: 0, data: { status: 'mismatch', expected: String(rawValue).trim().toLowerCase().replace(/\.+$/, ''), actual } };
   });
 
   app.get('/api/domains/:id/lines', auth, async (req: any) => {

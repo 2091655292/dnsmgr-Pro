@@ -22,11 +22,13 @@ import expireRoutes from './routes/expire.js';
 import registerRoutes from './routes/register.js';
 import setupRoutes from './routes/setup.js';
 import preheatRoutes from './routes/preheat.js';
+import dnsCheckRoutes from './routes/dnscheck.js';
 import { startMonitorScheduler } from './lib/monitor/scheduler.js';
 import { executeAll as runOptimizeAll } from './lib/optimize/optimizeService.js';
 import { executeAll as runScheduleAll } from './lib/schedule/scheduleService.js';
 import { expireNoticeTask } from './lib/expire/expireNoticeService.js';
 import { executePreheatTasks } from './lib/cdn/preheatService.js';
+import { executeCheckTasks } from './lib/dns/checkService.js';
 
 process.on('unhandledRejection', (reason: any) => {
   console.error('[backend] 未捕获的异步异常:', reason?.message || reason);
@@ -97,6 +99,7 @@ if (installed) {
   await app.register(expireRoutes);
   await app.register(registerRoutes);
   await app.register(preheatRoutes);
+  await app.register(dnsCheckRoutes);
 }
 
 // 静态资源与 SPA 回退（容器内 serve 前端构建产物；本地未构建则不注册）
@@ -133,6 +136,10 @@ try {
       executePreheatTasks().catch((e: any) => console.error('[preheat] 自动预热调度异常:', e.message));
     }, 60 * 1000);
     console.log('[dnsmgr-backend] CDN 自动预热调度器已启动');
+    setInterval(() => {
+      executeCheckTasks().catch((e: any) => console.error('[dnscheck] 自动检测调度异常:', e.message));
+    }, 60 * 1000);
+    console.log('[dnsmgr-backend] DNS 劫持检测调度器已启动');
   }
 } catch (e) {
   console.error(e);

@@ -73,6 +73,36 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-modal v-model:show="showCheck" preset="card" title="DNS 解析检测" style="max-width:460px">
+      <n-space vertical size="12">
+        <n-descriptions :column="1" size="small" label-placement="left" bordered>
+          <n-descriptions-item label="主机记录">{{ checkResult.name }}.{{ displayTitle }}</n-descriptions-item>
+          <n-descriptions-item label="记录类型">{{ checkResult.type }}</n-descriptions-item>
+          <n-descriptions-item label="记录值">{{ checkResult.value }}</n-descriptions-item>
+        </n-descriptions>
+        <n-alert
+          :type="checkResult.status === 'active' ? 'success' : checkResult.status === 'mismatch' ? 'error' : 'warning'"
+          :show-icon="false"
+          :title="statusText"
+        />
+        <div v-if="checkResult.actual && checkResult.actual.length">
+          <n-text strong>实际解析值：</n-text>
+          <n-ul>
+            <n-li v-for="(a, i) in checkResult.actual" :key="i">{{ a }}</n-li>
+          </n-ul>
+        </div>
+        <div v-if="checkResult.expected">
+          <n-text strong>期望解析值：</n-text>
+          <span>{{ checkResult.expected }}</span>
+        </div>
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showCheck = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -115,6 +145,18 @@ const valueDetail = ref('');
 const showRemark = ref(false);
 const remarkForm = reactive<any>({ recordId: '', remark: '' });
 const savingRemark = ref(false);
+
+const showCheck = ref(false);
+const checking = ref(false);
+const checkResult = ref<any>({ status: '', name: '', type: '', value: '', actual: [], expected: '' });
+
+const statusText = computed(() => {
+  const s = checkResult.value.status;
+  if (s === 'active') return '解析已生效，状态正常';
+  if (s === 'mismatch') return '解析值不匹配，可能存在劫持';
+  if (s === 'not_found') return '未查询到该解析记录，可能存在劫持';
+  return '';
+});
 
 const pagination = computed(() => ({
   page: page.value,
@@ -170,14 +212,16 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: 260,
     render(row: any) {
-      if (!access.value.writable) return h('span', { style: 'color:#bbb' }, '仅查看');
+      const checkBtn = h(NButton, { size: 'tiny', type: 'info', onClick: () => checkRecord(row) }, { default: () => '检测' });
+      if (!access.value.writable) return h(NSpace, null, { default: () => [checkBtn] });
       return h(NSpace, null, {
         default: () => [
           h(NButton, { size: 'tiny', onClick: () => toggleStatus(row) }, { default: () => (row.Status === '1' ? '暂停' : '启用') }),
           h(NButton, { size: 'tiny', type: 'primary', onClick: () => openEdit(row) }, { default: () => '编辑' }),
           h(NButton, { size: 'tiny', type: 'error', onClick: () => delRecord(row) }, { default: () => '删除' }),
+          checkBtn,
         ],
       });
     },
@@ -270,6 +314,20 @@ async function saveRecord() {
     showEdit.value = false;
     loadRecords();
   } else message.error(res.msg);
+}
+
+async function checkRecord(row: any) {
+  const value = Array.isArray(row.Value) ? row.Value[0] : row.Value;
+  checking.value = true;
+  try {
+    const res = await api<any>('POST', `/domains/${domainId}/records/check`, { name: row.Name, type: row.Type, value });
+    if (res.code === 0) {
+      checkResult.value = { ...res.data, name: row.Name, type: row.Type, value: String(value) };
+      showCheck.value = true;
+    } else message.error(res.msg);
+  } finally {
+    checking.value = false;
+  }
 }
 
 async function toggleStatus(row: any) {
