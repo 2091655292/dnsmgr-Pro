@@ -49,11 +49,13 @@
         </n-form-item>
         <n-form-item v-if="form.level === 1" label="子域名分配">
           <div class="perm-list">
-            <div v-for="(p, idx) in form.permission" :key="idx" class="perm-row">
-              <n-select v-model:value="p.domain" :options="domainOptions" placeholder="选择域名" filterable style="width: 170px" />
-              <n-input v-model:value="p.sub" placeholder="子域名前缀，如 user1 或 a.user1，留空=整域名" />
-              <n-select v-model:value="p.readonly" :options="modeOptions" style="width: 110px" />
-              <n-button size="small" type="error" quaternary @click="removePerm(idx)">删除</n-button>
+            <div v-for="(p, idx) in form.permission" :key="idx" class="perm-item">
+              <div class="perm-row">
+                <n-select v-model:value="p.domain" :options="domainOptions" placeholder="选择域名" filterable style="flex: 1" />
+                <n-select v-model:value="p.readonly" :options="modeOptions" style="width: 110px" />
+                <n-button size="small" type="error" quaternary @click="removePerm(idx)">删除</n-button>
+              </div>
+              <n-input v-model:value="p.sub" placeholder="子域名前缀，如 user1 或 a.user1（留空=整域名）" />
             </div>
             <n-button size="small" dashed @click="addPerm">添加子域名授权</n-button>
           </div>
@@ -306,12 +308,17 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
 }
+.perm-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+}
 .perm-row {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.perm-row .n-input {
-  flex: 1;
 }
 </style>
