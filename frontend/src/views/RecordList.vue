@@ -50,6 +50,16 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-modal v-model:show="showValue" preset="card" title="记录值" style="max-width:560px">
+      <n-input type="textarea" :value="valueDetail" :autosize="{ minRows: 2, maxRows: 10 }" readonly />
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showValue = false">关闭</n-button>
+          <n-button type="primary" @click="copyValue">复制</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -81,6 +91,9 @@ const editingId = ref<string | null>(null);
 const saving = ref(false);
 const form = reactive<any>({ name: '', type: 'A', value: '', line: 'default', ttl: 600, mx: 1 });
 
+const showValue = ref(false);
+const valueDetail = ref('');
+
 const pagination = computed(() => ({
   page: page.value,
   pageSize: pageSize.value,
@@ -100,7 +113,14 @@ const lineOptions = computed(() =>
 const columns = [
   { title: '主机记录', key: 'Name', width: 160 },
   { title: '类型', key: 'Type', width: 90 },
-  { title: '记录值', key: 'Value' },
+  {
+    title: '记录值',
+    key: 'Value',
+    width: 90,
+    render(row: any) {
+      return h(NButton, { text: true, size: 'tiny', type: 'primary', onClick: () => openValue(row.Value) }, { default: () => '查看' });
+    },
+  },
   { title: '线路', key: 'Line', width: 90 },
   { title: 'TTL', key: 'TTL', width: 80 },
   {
@@ -153,6 +173,20 @@ async function loadDomainInfo() {
       domainName.value = d.name;
       accountType.value = d.account_type || '';
     }
+  }
+}
+
+function openValue(value: any) {
+  valueDetail.value = String(value ?? '');
+  showValue.value = true;
+}
+
+async function copyValue() {
+  try {
+    await navigator.clipboard.writeText(valueDetail.value);
+    message.success('已复制');
+  } catch {
+    message.error('复制失败，请手动复制');
   }
 }
 
