@@ -79,6 +79,7 @@ const menuOptions = [
   { label: 'CDN 域名', key: 'cdn-domains', icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }) },
   { label: '数据统计', key: 'statistics', icon: () => h(NIcon, null, { default: () => h(BarChartOutline) }) },
   { label: '缓存刷新', key: 'cache-refresh', icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }) },
+  { label: '自动预热', key: 'preheat-tasks', icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) },
   { label: '证书账户', key: 'cert-accounts', icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }) },
   { label: '证书订单', key: 'cert-orders', icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }) },
   { label: '部署账户', key: 'deploy-accounts', icon: () => h(NIcon, null, { default: () => h(RocketOutline) }) },
@@ -99,6 +100,7 @@ const activeKey = computed(() => {
   if (route.path.startsWith('/cdn-domains')) return 'cdn-domains';
   if (route.path.startsWith('/statistics')) return 'statistics';
   if (route.path.startsWith('/cache-refresh')) return 'cache-refresh';
+  if (route.path.startsWith('/preheat-tasks')) return 'preheat-tasks';
   if (route.path.startsWith('/cert-accounts')) return 'cert-accounts';
   if (route.path.startsWith('/cert-orders')) return 'cert-orders';
   if (route.path.startsWith('/deploy-accounts')) return 'deploy-accounts';
