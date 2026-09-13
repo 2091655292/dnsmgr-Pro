@@ -3,8 +3,22 @@ import { query, queryOne, table } from '../db.js';
 import { getCdnProvider, cdnConfig } from '../lib/cdn/factory.js';
 import { getDnsProvider } from '../lib/dns/factory.js';
 import type { CdnProvider } from '../lib/cdn/types.js';
+import { queryByRoute, hasCdnStatistics, type StatisticsDomain } from '../lib/cdn/statistics/index.js';
+import { ensureSections, mergeResult } from '../lib/cdn/statistics/util.js';
 
 const authenticate = (app: FastifyInstance) => ({ preHandler: (app as any).authenticate });
+
+function parseStatTime(v: any): Date | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0));
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 function safeJson(s: string): Record<string, any> {
   try {
@@ -290,6 +304,65 @@ export default async function cdnRoutes(app: FastifyInstance) {
     if (!Object.keys(diff).length) return { code: 0, msg: '未检测到配置变化' };
     if (!(await provider.updateZoneSetting(row.zone_id, diff))) return { code: -1, msg: '站点配置更新失败，' + provider.getError() };
     return { code: 0, msg: '站点配置更新成功' };
+  });
+
+  // CDN 数据统计（加速流量 / 带宽 / 请求数 / 缓存命中 / 状态码）
+  app.get('/api/cdn/statistics', auth, async (req: any) => {
+    const q = req.query || {};
+    const type = ['Resource', 'Visits', 'HttpCodeStatus', 'All'].includes(String(q.type)) ? String(q.type) : 'All';
+    const start = parseStatTime(q.startTime);
+    const end = parseStatTime(q.endTime);
+    if (!start || !end) return { code: -1, msg: '时间参数无效，格式：2026-01-01 00:00:00' };
+    if (end.getTime() <= start.getTime()) return { code: -1, msg: '结束时间需大于开始时间' };
+
+    const domainNames = String(q.domains || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const aid = Number(q.aid || 0);
+
+    const where: string[] = [];
+    const params: any[] = [];
+    if (domainNames.length) {
+      where.push(`name IN (${domainNames.map(() => '?').join(',')})`);
+      params.push(...domainNames);
+    }
+    if (aid) {
+      where.push('aid = ?');
+      params.push(aid);
+    }
+    const sql = `SELECT * FROM ${table('cdn_domain')}` + (where.length ? ` WHERE ${where.join(' AND ')}` : '');
+    const rows = await query(sql, params);
+    if (!rows.length) return { code: 0, data: { labels: [] } };
+
+    const accounts: Record<number, any> = {};
+    const groups: Record<string, { route: string; config: Record<string, any>; domains: StatisticsDomain[] }> = {};
+    for (const row of rows as any[]) {
+      if (!hasCdnStatistics(row.route)) continue;
+      if (!accounts[row.aid]) accounts[row.aid] = await queryOne(`SELECT * FROM ${table('cdn_account')} WHERE id = ?`, [row.aid]);
+      const acct = accounts[row.aid];
+      if (!acct) continue;
+      const groupKey = `${row.route}#${row.aid}`;
+      if (!groups[groupKey]) groups[groupKey] = { route: row.route, config: safeJson(acct.config), domains: [] };
+      groups[groupKey].domains.push({ name: row.name, route: row.route, zoneId: row.zone_id, serviceArea: row.service_area });
+    }
+
+    let merged: any = null;
+    const errors: string[] = [];
+    for (const key of Object.keys(groups)) {
+      const group = groups[key];
+      try {
+        const part = await queryByRoute(group.route, group.config, group.domains, start, end, type);
+        if (!part.labels.length) continue;
+        merged = merged ? mergeResult(merged, part) : part;
+      } catch (e: any) {
+        errors.push(`${group.route}: ${e?.message || e}`);
+      }
+    }
+    if (!merged) return { code: 0, data: { labels: [], _errors: errors } };
+    ensureSections(merged, type, merged.labels.length);
+    if (errors.length) (merged as any)._errors = errors;
+    return { code: 0, data: merged };
   });
 }
 

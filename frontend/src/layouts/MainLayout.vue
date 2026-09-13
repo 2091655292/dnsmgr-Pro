@@ -58,7 +58,7 @@
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NIcon } from 'naive-ui';
-import { GlobeOutline, MenuOutline, PersonOutline, ServerOutline, CloudOutline, SpeedometerOutline, LinkOutline, ShieldCheckmarkOutline, RocketOutline, PulseOutline, SwapHorizontalOutline, FlashOutline, TimeOutline, SettingsOutline, PeopleOutline, DocumentTextOutline } from '@vicons/ionicons5';
+import { GlobeOutline, MenuOutline, PersonOutline, ServerOutline, CloudOutline, SpeedometerOutline, LinkOutline, ShieldCheckmarkOutline, RocketOutline, PulseOutline, SwapHorizontalOutline, FlashOutline, TimeOutline, SettingsOutline, PeopleOutline, DocumentTextOutline, BarChartOutline } from '@vicons/ionicons5';
 import { useAuthStore } from '../stores/auth';
 import { clearToken } from '../api';
 
@@ -77,6 +77,7 @@ const menuOptions = [
   { label: 'DNS 账户', key: 'dns-accounts', icon: () => h(NIcon, null, { default: () => h(LinkOutline) }) },
   { label: 'CDN 账户', key: 'cdn-accounts', icon: () => h(NIcon, null, { default: () => h(CloudOutline) }) },
   { label: 'CDN 域名', key: 'cdn-domains', icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }) },
+  { label: '数据统计', key: 'statistics', icon: () => h(NIcon, null, { default: () => h(BarChartOutline) }) },
   { label: '证书账户', key: 'cert-accounts', icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }) },
   { label: '证书订单', key: 'cert-orders', icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }) },
   { label: '部署账户', key: 'deploy-accounts', icon: () => h(NIcon, null, { default: () => h(RocketOutline) }) },
@@ -95,6 +96,7 @@ const activeKey = computed(() => {
   if (route.path.startsWith('/dns-accounts')) return 'dns-accounts';
   if (route.path.startsWith('/cdn-accounts')) return 'cdn-accounts';
   if (route.path.startsWith('/cdn-domains')) return 'cdn-domains';
+  if (route.path.startsWith('/statistics')) return 'statistics';
   if (route.path.startsWith('/cert-accounts')) return 'cert-accounts';
   if (route.path.startsWith('/cert-orders')) return 'cert-orders';
   if (route.path.startsWith('/deploy-accounts')) return 'deploy-accounts';
