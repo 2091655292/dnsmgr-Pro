@@ -17,15 +17,21 @@ interface PermItem {
   domain: string;
   sub: string | null;
   readonly: number;
+  expiretime: string | null;
 }
 
 function normalizePermission(input: any[]): PermItem[] {
   const out: PermItem[] = [];
   for (const item of input || []) {
     if (typeof item === 'string') {
-      out.push({ domain: item, sub: null, readonly: 0 });
+      out.push({ domain: item, sub: null, readonly: 0, expiretime: null });
     } else if (item && typeof item === 'object' && item.domain) {
-      out.push({ domain: item.domain, sub: item.sub || null, readonly: Number(item.readonly || 0) });
+      out.push({
+        domain: item.domain,
+        sub: item.sub || null,
+        readonly: Number(item.readonly || 0),
+        expiretime: item.expiretime ? String(item.expiretime) : null,
+      });
     }
   }
   return out;
@@ -34,7 +40,10 @@ function normalizePermission(input: any[]): PermItem[] {
 async function savePermissions(uid: number, input: any[]) {
   await query(`DELETE FROM ${table('permission')} WHERE uid = ?`, [uid]);
   for (const p of normalizePermission(input)) {
-    await query(`INSERT INTO ${table('permission')} (uid, domain, sub, readonly) VALUES (?, ?, ?, ?)`, [uid, p.domain, p.sub, p.readonly]);
+    await query(
+      `INSERT INTO ${table('permission')} (uid, domain, sub, readonly, expiretime) VALUES (?, ?, ?, ?, ?)`,
+      [uid, p.domain, p.sub, p.readonly, p.expiretime],
+    );
   }
 }
 
@@ -83,8 +92,8 @@ export default async function userRoutes(app: FastifyInstance) {
     const id = Number(req.params.id);
     const row = await queryOne(`SELECT id, username, is_api, apikey, level, status, totp_open FROM ${table('user')} WHERE id = ?`, [id]);
     if (!row) return { code: -1, msg: '用户不存在' };
-    const perms = await query(`SELECT domain, sub, readonly FROM ${table('permission')} WHERE uid = ?`, [id]);
-    row.permission = perms.map((p: any) => ({ domain: p.domain, sub: p.sub || null, readonly: Number(p.readonly || 0) }));
+    const perms = await query(`SELECT domain, sub, readonly, expiretime FROM ${table('permission')} WHERE uid = ?`, [id]);
+    row.permission = perms.map((p: any) => ({ domain: p.domain, sub: p.sub || null, readonly: Number(p.readonly || 0), expiretime: p.expiretime || null }));
     return { code: 0, data: row };
   });
 

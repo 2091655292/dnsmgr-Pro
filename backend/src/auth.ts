@@ -40,10 +40,14 @@ export interface SubPermission {
   domain: string;
   sub: string | null;
   readonly: number;
+  expiretime?: string | null;
 }
 
 export async function getUserPermissions(uid: number): Promise<SubPermission[]> {
-  return query<SubPermission>(`SELECT domain, sub, readonly FROM ${table('permission')} WHERE uid = ?`, [uid]);
+  return query<SubPermission>(
+    `SELECT domain, sub, readonly, expiretime FROM ${table('permission')} WHERE uid = ? AND (expiretime IS NULL OR expiretime > NOW())`,
+    [uid],
+  );
 }
 
 /** 判断某条解析记录主机名是否落在分配的子域名范围内（sub 为空表示整域名） */

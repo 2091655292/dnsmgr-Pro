@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_permission` (
   `uid` int(11) unsigned NOT NULL,
   `domain` varchar(255) NOT NULL,
   `sub` varchar(80) DEFAULT NULL,
+  `readonly` tinyint(1) NOT NULL DEFAULT '0',
+  `expiretime` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `uid` (`uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

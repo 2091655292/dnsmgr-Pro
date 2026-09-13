@@ -4,6 +4,7 @@ import { query, table } from './db.js';
 export async function migrate(): Promise<void> {
   await ensureColumn('user', 'email', 'varchar(128) DEFAULT NULL');
   await ensureColumn('permission', 'readonly', "tinyint(1) NOT NULL DEFAULT '0'");
+  await ensureColumn('permission', 'expiretime', 'datetime DEFAULT NULL');
 
   await query(
     `CREATE TABLE IF NOT EXISTS ${table('reg_code')} (

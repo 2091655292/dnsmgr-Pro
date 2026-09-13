@@ -56,6 +56,7 @@
                 <n-button size="small" type="error" quaternary @click="removePerm(idx)">删除</n-button>
               </div>
               <n-input v-model:value="p.sub" placeholder="子域名前缀，如 user1 或 a.user1（留空=整域名）" />
+              <n-date-picker v-model:value="p.expiretime" type="datetime" value-format="yyyy-MM-dd HH:mm:ss" clearable placeholder="有效期至（留空=永久）" style="width: 100%" />
             </div>
             <n-button size="small" dashed @click="addPerm">添加子域名授权</n-button>
           </div>
@@ -200,7 +201,7 @@ function genPassword() {
   form.password = randomStr(12);
 }
 function addPerm() {
-  form.permission.push({ domain: '', sub: '', readonly: 0 });
+  form.permission.push({ domain: '', sub: '', readonly: 0, expiretime: null });
 }
 function removePerm(idx: number) {
   form.permission.splice(idx, 1);
@@ -237,7 +238,7 @@ async function openEdit(row: any) {
     form.apikey = res.data.apikey || '';
     form.level = res.data.level;
     form.permission = (res.data.permission || []).map((p: any) =>
-      typeof p === 'string' ? { domain: p, sub: '', readonly: 0 } : { domain: p.domain, sub: p.sub || '', readonly: Number(p.readonly || 0) },
+      typeof p === 'string' ? { domain: p, sub: '', readonly: 0, expiretime: null } : { domain: p.domain, sub: p.sub || '', readonly: Number(p.readonly || 0), expiretime: p.expiretime || null },
     );
     showEdit.value = true;
   } else message.error(res.msg);
