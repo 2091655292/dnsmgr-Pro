@@ -118,6 +118,10 @@ export class AliyunDns implements DnsProvider {
     return (await this.request({ Action: 'DeleteDomainRecord', RecordId })) !== false;
   }
 
+  async updateDomainRecordRemark(RecordId: string, Remark: string | null): Promise<boolean> {
+    return (await this.request({ Action: 'UpdateDomainRecordRemark', RecordId, Remark: Remark ?? '' })) !== false;
+  }
+
   async setDomainRecordStatus(RecordId: string, Status: string) {
     const s = Status === '1' ? 'Enable' : 'Disable';
     return (await this.request({ Action: 'SetDomainRecordStatus', RecordId, Status: s })) !== false;

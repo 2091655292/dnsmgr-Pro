@@ -121,8 +121,30 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
     const recordId = await provider.addDomainRecord(name, type, value, line || 'default', Number(ttl || 600), Number(mx || 1), weight ?? null, remark || null);
     if (!recordId) return { code: -1, msg: provider.getError() };
+    if (remark && typeof (provider as any).updateDomainRecordRemark === 'function') {
+      await (provider as any).updateDomainRecordRemark(recordId, remark);
+    }
     await bumpRecordCount(id, 1);
     return { code: 0, msg: '添加记录成功', data: recordId };
+  });
+
+  app.post('/api/domains/:id/records/:recordId/remark', auth, async (req: any) => {
+    const { id, recordId } = req.params as any;
+    const remark = (req.body || {}).remark ?? null;
+    const info = await getDomainWithAccount(id);
+    if (!info) return { code: -1, msg: '域名或账户不存在' };
+    const provider: any = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
+    if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    if (typeof provider.updateDomainRecordRemark === 'function') {
+      const ok = await provider.updateDomainRecordRemark(recordId, remark);
+      if (!ok) return { code: -1, msg: provider.getError() };
+      return { code: 0, msg: '备注修改成功' };
+    }
+    const cur = await provider.getDomainRecordInfo(recordId);
+    if (!cur) return { code: -1, msg: provider.getError?.() || '获取记录信息失败' };
+    const ok = await provider.updateDomainRecord(recordId, cur.Name, cur.Type, cur.Value, cur.Line, cur.TTL, cur.MX, cur.Weight, remark);
+    if (!ok) return { code: -1, msg: provider.getError?.() || '备注修改失败' };
+    return { code: 0, msg: '备注修改成功' };
   });
 
   app.put('/api/domains/:id/records/:recordId', auth, async (req: any) => {

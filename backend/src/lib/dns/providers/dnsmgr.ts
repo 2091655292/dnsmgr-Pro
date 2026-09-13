@@ -155,6 +155,10 @@ export class DnsmgrDns implements DnsProvider {
     return (await this.sendRequest('/api/record/delete/' + this.domainid, { recordid: RecordId })) !== false;
   }
 
+  async updateDomainRecordRemark(RecordId: string, Remark: string | null): Promise<boolean> {
+    return (await this.sendRequest('/api/record/remark/' + this.domainid, { recordid: RecordId, remark: Remark ?? '' })) !== false;
+  }
+
   async setDomainRecordStatus(RecordId: string, Status: string) {
     return (await this.sendRequest('/api/record/status/' + this.domainid, { recordid: RecordId, status: Status })) !== false;
   }

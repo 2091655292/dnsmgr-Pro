@@ -126,6 +126,11 @@ export class CloudflareDns implements DnsProvider {
     return (await this.send('DELETE', '/zones/' + this.config.domainid + '/dns_records/' + RecordId)) !== false;
   }
 
+  async updateDomainRecordRemark(RecordId: string, Remark: string | null): Promise<boolean> {
+    const body: Record<string, any> = { comment: Remark ?? '' };
+    return (await this.send('PATCH', '/zones/' + this.config.domainid + '/dns_records/' + RecordId, undefined, body)) !== false;
+  }
+
   async setDomainRecordStatus(RecordId: string, _Status: string) {
     this.error = 'Cloudflare 不支持启用/暂停记录，可通过代理开关控制';
     return false;

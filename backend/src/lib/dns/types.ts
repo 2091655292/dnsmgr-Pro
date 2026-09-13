@@ -67,6 +67,7 @@ export interface DnsProvider {
   ): Promise<boolean>;
   deleteDomainRecord(RecordId: string): Promise<boolean>;
   setDomainRecordStatus(RecordId: string, Status: string): Promise<boolean>;
+  updateDomainRecordRemark?(RecordId: string, Remark: string | null): Promise<boolean>;
   getRecordLine(): Promise<Record<string, string> | false>;
   addDomain(Domain: string): Promise<boolean>;
 }

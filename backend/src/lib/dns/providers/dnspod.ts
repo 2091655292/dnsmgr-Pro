@@ -120,7 +120,7 @@ export class Dnspod implements DnsProvider {
     };
   }
 
-  async addDomainRecord(Name: string, Type: string, Value: string, Line = '0', TTL = 600, MX = 1, Weight: number | null = null, _Remark: string | null = null) {
+  async addDomainRecord(Name: string, Type: string, Value: string, Line = '0', TTL = 600, MX = 1, Weight: number | null = null, Remark: string | null = null) {
     const param: Record<string, any> = {
       Domain: this.domain,
       SubDomain: Name,
@@ -132,11 +132,12 @@ export class Dnspod implements DnsProvider {
       Weight: Weight ?? undefined,
     };
     if (Type === 'MX') param.MX = Number(MX);
+    if (Remark != null) param.Remark = Remark;
     const data = await this.send('CreateRecord', param);
     return data && data.RecordId ? String(data.RecordId) : false;
   }
 
-  async updateDomainRecord(RecordId: string, Name: string, Type: string, Value: string, Line = '0', TTL = 600, MX = 1, Weight: number | null = null, _Remark: string | null = null) {
+  async updateDomainRecord(RecordId: string, Name: string, Type: string, Value: string, Line = '0', TTL = 600, MX = 1, Weight: number | null = null, Remark: string | null = null) {
     const param: Record<string, any> = {
       Domain: this.domain,
       RecordId: Number(RecordId),
@@ -149,7 +150,12 @@ export class Dnspod implements DnsProvider {
       Weight: Weight ?? undefined,
     };
     if (Type === 'MX') param.MX = Number(MX);
+    if (Remark != null) param.Remark = Remark;
     return this.send('ModifyRecord', param) !== false;
+  }
+
+  async updateDomainRecordRemark(RecordId: string, Remark: string | null): Promise<boolean> {
+    return this.send('ModifyRecordRemark', { Domain: this.domain, RecordId: Number(RecordId), Remark: Remark ?? '' }) !== false;
   }
 
   async deleteDomainRecord(RecordId: string) {

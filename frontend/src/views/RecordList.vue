@@ -42,6 +42,9 @@
         <n-form-item v-if="form.type === 'MX'" label="优先级">
           <n-input-number v-model:value="form.mx" :min="0" style="width:100%" />
         </n-form-item>
+        <n-form-item label="备注">
+          <n-input v-model:value="form.remark" placeholder="可留空，部分服务商支持同步到上游" />
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -57,6 +60,16 @@
         <n-space justify="end">
           <n-button @click="showValue = false">关闭</n-button>
           <n-button type="primary" @click="copyValue">复制</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <n-modal v-model:show="showRemark" preset="card" title="修改备注" style="max-width:480px">
+      <n-input v-model:value="remarkForm.remark" type="textarea" :rows="3" placeholder="备注内容" />
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showRemark = false">取消</n-button>
+          <n-button type="primary" :loading="savingRemark" @click="saveRemark">保存</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -89,10 +102,13 @@ const lines = ref<Record<string, string>>({});
 const showEdit = ref(false);
 const editingId = ref<string | null>(null);
 const saving = ref(false);
-const form = reactive<any>({ name: '', type: 'A', value: '', line: 'default', ttl: 600, mx: 1 });
+const form = reactive<any>({ name: '', type: 'A', value: '', line: 'default', ttl: 600, mx: 1, remark: '' });
 
 const showValue = ref(false);
 const valueDetail = ref('');
+const showRemark = ref(false);
+const remarkForm = reactive<any>({ recordId: '', remark: '' });
+const savingRemark = ref(false);
 
 const pagination = computed(() => ({
   page: page.value,
@@ -119,6 +135,19 @@ const columns = [
     width: 90,
     render(row: any) {
       return h(NButton, { text: true, size: 'tiny', type: 'primary', onClick: () => openValue(row.Value) }, { default: () => '查看' });
+    },
+  },
+  {
+    title: '备注',
+    key: 'Remark',
+    width: 110,
+    render(row: any) {
+      const text = row.Remark || '';
+      return h(
+        NButton,
+        { text: true, size: 'tiny', type: text ? 'default' : 'primary', onClick: () => openRemark(row) },
+        { default: () => text || '添加备注' },
+      );
     },
   },
   { title: '线路', key: 'Line', width: 90 },
@@ -190,15 +219,32 @@ async function copyValue() {
   }
 }
 
+function openRemark(row: any) {
+  remarkForm.recordId = row.RecordId;
+  remarkForm.remark = row.Remark || '';
+  showRemark.value = true;
+}
+
+async function saveRemark() {
+  savingRemark.value = true;
+  const res = await api('POST', `/domains/${domainId}/records/${remarkForm.recordId}/remark`, { remark: remarkForm.remark || null });
+  savingRemark.value = false;
+  if (res.code === 0) {
+    message.success(res.msg);
+    showRemark.value = false;
+    loadRecords();
+  } else message.error(res.msg);
+}
+
 function openAdd() {
   editingId.value = null;
-  Object.assign(form, { name: '', type: 'A', value: '', line: 'default', ttl: 600, mx: 1 });
+  Object.assign(form, { name: '', type: 'A', value: '', line: 'default', ttl: 600, mx: 1, remark: '' });
   showEdit.value = true;
 }
 
 function openEdit(row: any) {
   editingId.value = row.RecordId;
-  Object.assign(form, { name: row.Name, type: row.Type, value: row.Value, line: row.Line, ttl: row.TTL, mx: row.MX ?? 1 });
+  Object.assign(form, { name: row.Name, type: row.Type, value: row.Value, line: row.Line, ttl: row.TTL, mx: row.MX ?? 1, remark: row.Remark || '' });
   showEdit.value = true;
 }
 
