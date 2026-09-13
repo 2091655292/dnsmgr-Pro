@@ -7,7 +7,7 @@
             <n-button quaternary circle @click="$router.back()">
               <template #icon><n-icon :component="ArrowBackOutline" /></template>
             </n-button>
-            <span class="title">解析记录 · {{ domainName || '域名 #' + domainId }}</span>
+            <span class="title">解析记录 · {{ displayTitle }}</span>
           </n-space>
           <n-space>
             <n-button v-if="accountType === 'cloudflare' && isAdmin" size="small" type="info" @click="router.push(`/cloudflare/domains/${domainId}/hostnames`)">自定义主机名</n-button>
@@ -92,6 +92,10 @@ const domainName = ref('');
 const accountType = ref('');
 const isAdmin = computed(() => (getUser()?.level || 0) >= 2);
 const subFilter = computed(() => (route.query.sub as string) || '');
+const displayTitle = computed(() => {
+  if (!domainName.value) return `域名 #${domainId}`;
+  return subFilter.value ? `${subFilter.value}.${domainName.value}` : domainName.value;
+});
 const access = ref<{ admin: boolean; readonly: boolean; writable: boolean }>({ admin: true, readonly: false, writable: true });
 
 const loading = ref(false);
@@ -186,7 +190,7 @@ async function loadRecords() {
   if (res.code === 0) {
     records.value = res.data.list;
     total.value = res.data.total;
-    domainName.value = res.data.list?.[0]?.Domain || '';
+    domainName.value = res.data.list?.[0]?.Domain || domainName.value;
     access.value = res.data._access || { admin: true, readonly: false, writable: true };
   } else {
     message.error(res.msg);
@@ -204,7 +208,7 @@ async function loadDomainInfo() {
   if (res.code === 0) {
     const d = res.data.find((x: any) => x.id === domainId);
     if (d) {
-      domainName.value = d.name;
+      domainName.value = d._base_name || d.name;
       accountType.value = d.account_type || '';
     }
   }
