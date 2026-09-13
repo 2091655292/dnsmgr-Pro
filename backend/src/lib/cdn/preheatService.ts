@@ -39,15 +39,15 @@ async function cdnForZone(aid: number, zoneId: string | null) {
   return provider;
 }
 
-async function insertTask(url: string, route: string, status: number, msg: string | null, taskId?: string | null) {
+async function insertTask(url: string, route: string, op: string, status: number, msg: string | null, taskId?: string | null) {
   await query(
-    `INSERT INTO ${table('cdn_cache_task')} (url, type, provider, task_id, status, msg, addtime) VALUES (?, 'preheat', ?, ?, ?, ?, NOW())`,
-    [url, route, taskId ?? null, status, msg],
+    `INSERT INTO ${table('cdn_cache_task')} (url, type, provider, task_id, status, msg, addtime) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+    [url, op, route, taskId ?? null, status, msg],
   );
 }
 
-/** 对一批 URL 执行预热，返回成功/失败数量 */
-export async function preheatUrls(urls: string[]): Promise<{ success: number; failed: number }> {
+/** 按加速域名分组分发缓存操作（预热 / 清除缓存） */
+async function dispatchCacheOp(op: 'purge' | 'preheat', type: string, urls: string[]): Promise<{ success: number; failed: number }> {
   const list = dedupe(urls);
   const grouped: Record<string, { route: string; provider: any; urls: string[] }> = {};
   const failed: { url: string; msg: string }[] = [];
@@ -76,27 +76,39 @@ export async function preheatUrls(urls: string[]): Promise<{ success: number; fa
   let success = 0;
   for (const key of Object.keys(grouped)) {
     const g = grouped[key];
-    const fn = g.provider?.preheat;
+    const unsupported = op === 'purge' ? '该厂商暂不支持清除缓存' : '该厂商暂不支持预热';
+    const taskType = op === 'purge' ? (type === 'dir' ? 'dir' : 'url') : 'preheat';
+    const fn = g.provider ? g.provider[op] : undefined;
     if (typeof fn !== 'function') {
       for (const u of g.urls) {
-        failed.push({ url: u, msg: '该厂商暂不支持预热' });
-        await insertTask(u, g.route, 1, '该厂商暂不支持预热');
+        failed.push({ url: u, msg: unsupported });
+        await insertTask(u, g.route, taskType, 1, unsupported);
       }
       continue;
     }
-    const taskId = await fn(g.urls);
+    const taskId = op === 'purge' ? await fn(g.urls, type) : await fn(g.urls);
     const errMsg = taskId === false ? g.provider.getError?.() || '提交失败' : null;
     for (const u of g.urls) {
       if (taskId === false) {
         failed.push({ url: u, msg: errMsg || '提交失败' });
-        await insertTask(u, g.route, 1, errMsg);
+        await insertTask(u, g.route, taskType, 1, errMsg);
       } else {
         success++;
-        await insertTask(u, g.route, 0, null, typeof taskId === 'string' ? taskId : null);
+        await insertTask(u, g.route, taskType, 0, null, typeof taskId === 'string' ? taskId : null);
       }
     }
   }
   return { success, failed: failed.length };
+}
+
+/** 对一批 URL 执行预热 */
+export async function preheatUrls(urls: string[]): Promise<{ success: number; failed: number }> {
+  return dispatchCacheOp('preheat', 'preheat', urls);
+}
+
+/** 对一批 URL 执行清除缓存（URL 刷新） */
+export async function purgeUrls(urls: string[]): Promise<{ success: number; failed: number }> {
+  return dispatchCacheOp('purge', 'url', urls);
 }
 
 /** 根据任务配置计算下一次执行时间 */
@@ -121,9 +133,10 @@ export async function executePreheatTasks(): Promise<number> {
     const urls = loadUrls(t.urls);
     if (urls.length) {
       try {
-        await preheatUrls(urls);
+        if (t.op === 'purge') await purgeUrls(urls);
+        else await preheatUrls(urls);
       } catch (e: any) {
-        console.error('[preheat] 自动预热任务执行异常:', e?.message);
+        console.error('[preheat] 自动任务执行异常:', e?.message);
       }
     }
     const next = calcNextRun(t.cycle, t.interval_min, t.run_time);

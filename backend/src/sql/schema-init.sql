@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_cdn_preheat_task` (
   `id` int(11) unsigned NOT NULL auto_increment,
   `name` varchar(100) DEFAULT NULL,
   `urls` text NOT NULL,
+  `op` varchar(20) NOT NULL DEFAULT 'preheat',
   `cycle` varchar(20) NOT NULL DEFAULT 'daily',
   `interval_min` int(11) NOT NULL DEFAULT '0',
   `run_time` varchar(5) DEFAULT NULL,

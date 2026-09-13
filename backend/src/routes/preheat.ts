@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { query, queryOne, table } from '../db.js';
 import { checkLevel } from '../auth.js';
-import { preheatUrls, calcNextRun, loadUrls } from '../lib/cdn/preheatService.js';
+import { preheatUrls, purgeUrls, calcNextRun, loadUrls } from '../lib/cdn/preheatService.js';
 import { fmtDateTime } from '../lib/util.js';
 
 const authenticate = (app: FastifyInstance) => ({ preHandler: (app as any).authenticate });
@@ -25,11 +25,12 @@ export default async function preheatRoutes(app: FastifyInstance) {
     const cycle = b.cycle === 'interval' ? 'interval' : 'daily';
     const intervalMin = b.cycle === 'interval' ? Number(b.interval_min) || 0 : 0;
     const runTime = cycle === 'daily' ? String(b.run_time || '00:00') : null;
+    const op = b.op === 'purge' ? 'purge' : 'preheat';
     if (cycle === 'interval' && intervalMin <= 0) return { code: -1, msg: '请填写预热间隔的分钟数' };
     const nextRun = fmtDateTime(calcNextRun(cycle, intervalMin, runTime));
     const id: number = await query(
-      `INSERT INTO ${table('cdn_preheat_task')} (name, urls, cycle, interval_min, run_time, active, next_run, addtime) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [String(b.name || ''), urls, cycle, intervalMin, runTime, b.active == 0 ? 0 : 1, nextRun],
+      `INSERT INTO ${table('cdn_preheat_task')} (name, urls, op, cycle, interval_min, run_time, active, next_run, addtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [String(b.name || ''), urls, op, cycle, intervalMin, runTime, b.active == 0 ? 0 : 1, nextRun],
     ).then((r: any) => r.insertId || 0);
     return { code: 0, msg: '创建成功', data: id };
   });
@@ -46,10 +47,11 @@ export default async function preheatRoutes(app: FastifyInstance) {
     const cycle = b.cycle === 'interval' ? 'interval' : 'daily';
     const intervalMin = b.cycle === 'interval' ? Number(b.interval_min) || 0 : 0;
     const runTime = cycle === 'daily' ? String(b.run_time || '00:00') : null;
+    const op = b.op === 'purge' ? 'purge' : 'preheat';
     if (cycle === 'interval' && intervalMin <= 0) return { code: -1, msg: '请填写预热间隔的分钟数' };
     await query(
-      `UPDATE ${table('cdn_preheat_task')} SET name = ?, urls = ?, cycle = ?, interval_min = ?, run_time = ?, active = ? WHERE id = ?`,
-      [String(b.name || ''), urls, cycle, intervalMin, runTime, b.active == 0 ? 0 : 1, id],
+      `UPDATE ${table('cdn_preheat_task')} SET name = ?, urls = ?, op = ?, cycle = ?, interval_min = ?, run_time = ?, active = ? WHERE id = ?`,
+      [String(b.name || ''), urls, op, cycle, intervalMin, runTime, b.active == 0 ? 0 : 1, id],
     );
     return { code: 0, msg: '保存成功' };
   });
@@ -70,7 +72,7 @@ export default async function preheatRoutes(app: FastifyInstance) {
     const row: any = await queryOne(`SELECT * FROM ${table('cdn_preheat_task')} WHERE id = ?`, [id]);
     if (!row) return { code: -1, msg: '任务不存在' };
     const urls = loadUrls(row.urls);
-    const result = await preheatUrls(urls);
+    const result = row.op === 'purge' ? await purgeUrls(urls) : await preheatUrls(urls);
     const next = fmtDateTime(calcNextRun(row.cycle, row.interval_min, row.run_time));
     await query(`UPDATE ${table('cdn_preheat_task')} SET last_run = NOW(), next_run = ? WHERE id = ?`, [next, id]);
     return { code: 0, ...result };

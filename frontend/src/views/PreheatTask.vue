@@ -26,8 +26,14 @@
         <n-form-item label="任务名称">
           <n-input v-model:value="form.name" placeholder="可选，便于识别" />
         </n-form-item>
-        <n-form-item label="预热链接">
+        <n-form-item label="链接列表">
           <n-input v-model:value="form.urls" type="textarea" :rows="6" placeholder="每行一个 URL，例如：&#10;https://www.example.com/index.html&#10;https://www.example.com/style.css" />
+        </n-form-item>
+        <n-form-item label="操作类型">
+          <n-radio-group v-model:value="form.op">
+            <n-radio-button value="preheat">缓存预热</n-radio-button>
+            <n-radio-button value="purge">清除缓存</n-radio-button>
+          </n-radio-group>
         </n-form-item>
         <n-form-item label="执行周期">
           <n-radio-group v-model:value="form.cycle">
@@ -68,7 +74,7 @@ const saving = ref(false);
 const tasks = ref<any[]>([]);
 const showEdit = ref(false);
 const editingId = ref<number | null>(null);
-const form = reactive<any>({ name: '', urls: '', cycle: 'daily', runTime: 3 * 3600000 + 30 * 60000, intervalMin: 60, active: true });
+const form = reactive<any>({ name: '', urls: '', op: 'preheat', cycle: 'daily', runTime: 3 * 3600000 + 30 * 60000, intervalMin: 60, active: true });
 
 function fmtRunTime(v: number | null): string {
   if (v === null || v === undefined) return '-';
@@ -81,7 +87,13 @@ const columns = [
   { title: 'ID', key: 'id', width: 60 },
   { title: '名称', key: 'name', width: 150, render: (row: any) => row.name || '-' },
   {
-    title: '预热链接',
+    title: '类型',
+    key: 'op',
+    width: 100,
+    render: (row: any) => h(NTag, { size: 'small', type: row.op === 'purge' ? 'warning' : 'success', bordered: false }, { default: () => (row.op === 'purge' ? '清除缓存' : '预热') }),
+  },
+  {
+    title: '链接',
     key: 'urls',
     ellipsis: { tooltip: true },
     render: (row: any) => {
@@ -137,6 +149,7 @@ function openAdd() {
   editingId.value = null;
   form.name = '';
   form.urls = '';
+  form.op = 'preheat';
   form.cycle = 'daily';
   form.runTime = 3 * 3600000 + 30 * 60000;
   form.intervalMin = 60;
@@ -153,6 +166,7 @@ function openEdit(row: any) {
   editingId.value = row.id;
   form.name = row.name || '';
   form.urls = row.urls || '';
+  form.op = row.op === 'purge' ? 'purge' : 'preheat';
   form.cycle = row.cycle === 'interval' ? 'interval' : 'daily';
   form.runTime = hmToTimestamp(row.run_time);
   form.intervalMin = Number(row.interval_min) || 60;
@@ -166,7 +180,7 @@ async function save() {
   saving.value = true;
   try {
     const runTime = form.cycle === 'daily' ? fmtRunTime(form.runTime) : null;
-    const body: any = { name: form.name, urls: form.urls, cycle: form.cycle, active: form.active ? 1 : 0 };
+    const body: any = { name: form.name, urls: form.urls, op: form.op, cycle: form.cycle, active: form.active ? 1 : 0 };
     if (form.cycle === 'interval') body.interval_min = form.intervalMin;
     else body.run_time = runTime;
     const res = editingId.value
