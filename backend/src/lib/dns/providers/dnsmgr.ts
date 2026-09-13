@@ -63,6 +63,18 @@ export class DnsmgrDns implements DnsProvider {
   }
 
   async check() {
+    if (!this.baseUrl || !this.uid || !this.key) {
+      this.error = '站点地址、用户 ID、API 密钥均不能为空';
+      return false;
+    }
+    if (this.baseUrl === 'http://' || this.baseUrl === 'https://') {
+      this.error = '站点地址不能仅填写协议，请填写完整地址如 https://dns.example.com';
+      return false;
+    }
+    if (!/^\d+$/.test(String(this.uid))) {
+      this.error = '用户 ID 必须为数字（目标站点用户列表中的 ID，而非用户名），请到目标站点用户管理查看数字 ID';
+      return false;
+    }
     return (await this.getDomainList()) !== false;
   }
 

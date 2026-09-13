@@ -277,8 +277,8 @@ export const dnsProviders: Record<string, DnsProviderMeta> = {
     note: '对接其他聚合DNS管理系统站点',
     config: {
       base_url: { name: '站点地址', type: 'input', placeholder: '例如：https://dns.example.com', required: true },
-      uid: { name: '用户 ID', type: 'input', required: true },
-      key: { name: 'API 密钥', type: 'input', required: true },
+      uid: { name: '用户 ID', type: 'input', placeholder: '数字用户 ID（非用户名），见目标站点用户管理', required: true },
+      key: { name: 'API 密钥', type: 'input', placeholder: '目标站点该用户开启 API 权限后的密钥', required: true },
       proxy: proxyField,
     },
     remark: 2, status: true, redirect: true, log: false, weight: true, page: false, add: false, sort: false,
