@@ -11,7 +11,7 @@
           </n-space>
           <n-space>
             <n-button v-if="accountType === 'cloudflare' && isAdmin" size="small" type="info" @click="router.push(`/cloudflare/domains/${domainId}/hostnames`)">自定义主机名</n-button>
-            <n-button type="primary" @click="openAdd">
+            <n-button v-if="access.writable" type="primary" @click="openAdd">
               <template #icon><n-icon :component="AddOutline" /></template>
               添加记录
             </n-button>
@@ -91,6 +91,7 @@ const domainId = Number(route.params.id);
 const domainName = ref('');
 const accountType = ref('');
 const isAdmin = computed(() => (getUser()?.level || 0) >= 2);
+const access = ref<{ admin: boolean; readonly: boolean; writable: boolean }>({ admin: true, readonly: false, writable: true });
 
 const loading = ref(false);
 const records = ref<any[]>([]);
@@ -143,6 +144,7 @@ const columns = [
     width: 110,
     render(row: any) {
       const text = row.Remark || '';
+      if (!access.value.writable) return text || '—';
       return h(
         NButton,
         { text: true, size: 'tiny', type: text ? 'default' : 'primary', onClick: () => openRemark(row) },
@@ -165,6 +167,7 @@ const columns = [
     key: 'actions',
     width: 200,
     render(row: any) {
+      if (!access.value.writable) return h('span', { style: 'color:#bbb' }, '仅查看');
       return h(NSpace, null, {
         default: () => [
           h(NButton, { size: 'tiny', onClick: () => toggleStatus(row) }, { default: () => (row.Status === '1' ? '暂停' : '启用') }),
@@ -183,6 +186,7 @@ async function loadRecords() {
     records.value = res.data.list;
     total.value = res.data.total;
     domainName.value = res.data.list?.[0]?.Domain || '';
+    access.value = res.data._access || { admin: true, readonly: false, writable: true };
   } else {
     message.error(res.msg);
   }

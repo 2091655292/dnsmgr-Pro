@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { query, queryOne, table } from '../db.js';
 import { getDnsProvider } from '../lib/dns/factory.js';
+import { getUserPermissions, matchPermission, isRecordInScope, type SubPermission } from '../auth.js';
 
 const authenticate = (app: FastifyInstance) => ({ preHandler: (app as any).authenticate });
 
@@ -11,6 +12,48 @@ function safeJson(s: string): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+async function getUserPerms(req: any): Promise<{ admin: boolean; perms: SubPermission[] }> {
+  if (Number(req.user?.level ?? 0) >= 2) return { admin: true, perms: [] };
+  return { admin: false, perms: await getUserPermissions(req.user.uid) };
+}
+
+/** 写操作权限校验，返回错误信息；为空表示允许 */
+function writeErr(acc: { admin: boolean; perms: SubPermission[] }, domainName: string, recordName: string): string | null {
+  if (acc.admin) return null;
+  const m = matchPermission(acc.perms, domainName, String(recordName ?? ''));
+  if (m < 0) return '无权限操作该子域名';
+  if (m === 1) return '该子域名仅查看，禁止修改';
+  return null;
+}
+
+/** 普通用户记录列表过滤：只保留授权子域名树内的记录 */
+function filterRecords(acc: { admin: boolean; perms: SubPermission[] }, domainName: string, list: any[]): any[] {
+  if (acc.admin) return list;
+  const subs = new Set<string>();
+  let full = false;
+  for (const p of acc.perms) {
+    if (p.domain !== domainName) continue;
+    if (!p.sub) {
+      full = true;
+      break;
+    }
+    subs.add(p.sub);
+  }
+  if (full) return list;
+  return list.filter((r: any) => {
+    for (const s of subs) if (isRecordInScope(r.Name, s)) return true;
+    return false;
+  });
+}
+
+/** 返回当前用户对某域名的访问信息，供前端控制写操作按钮 */
+function buildAccess(acc: { admin: boolean; perms: SubPermission[] }, domainName: string) {
+  if (acc.admin) return { admin: true, readonly: false, writable: true, subs: [] };
+  const mine = acc.perms.filter((p) => p.domain === domainName);
+  const writable = mine.some((p) => p.readonly !== 1);
+  return { admin: false, readonly: !writable, writable, subs: mine.map((p) => p.sub).filter(Boolean) };
 }
 
 async function getDomainWithAccount(domainId: number) {
@@ -26,12 +69,17 @@ export default async function domainRoutes(app: FastifyInstance) {
 
   // ============ 域名管理 ============
   app.get('/api/domains', auth, async (req: any) => {
+    const acc = await getUserPerms(req);
     const rows = await query(
       `SELECT A.*, B.type AS account_type, B.name AS account_name FROM ${table('domain')} A LEFT JOIN ${table('account')} B ON A.aid = B.id ORDER BY A.id DESC`,
     );
     const categories = await query(`SELECT id, name FROM ${table('domain_category')} ORDER BY sort ASC`);
     const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c.name]));
-    const data = rows.map((r: any) => ({ ...r, category_name: catMap[r.cid] || '' }));
+    let data = rows.map((r: any) => ({ ...r, category_name: catMap[r.cid] || '' }));
+    if (!acc.admin) {
+      const allowed = new Set(acc.perms.map((p) => p.domain));
+      data = data.filter((r: any) => allowed.has(r.name));
+    }
     return { code: 0, data };
   });
 
@@ -83,6 +131,7 @@ export default async function domainRoutes(app: FastifyInstance) {
   app.get('/api/domains/:id/records', auth, async (req: any) => {
     const { id } = req.params as any;
     const q = req.query || {};
+    const acc = await getUserPerms(req);
     const info = await getDomainWithAccount(id);
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
@@ -98,6 +147,10 @@ export default async function domainRoutes(app: FastifyInstance) {
       q.status || null,
     );
     if (res === false) return { code: -1, msg: provider.getError() };
+    if (!acc.admin) {
+      res.list = filterRecords(acc, info.domain.name, res.list);
+    }
+    (res as any)._access = buildAccess(acc, info.domain.name);
     return { code: 0, data: res };
   });
 
@@ -119,6 +172,11 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    {
+      const acc = await getUserPerms(req);
+      const err = writeErr(acc, info.domain.name, name);
+      if (err) return { code: -1, msg: err };
+    }
     const recordId = await provider.addDomainRecord(name, type, value, line || 'default', Number(ttl || 600), Number(mx || 1), weight ?? null, remark || null);
     if (!recordId) return { code: -1, msg: provider.getError() };
     if (remark && typeof (provider as any).updateDomainRecordRemark === 'function') {
@@ -135,6 +193,15 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider: any = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    {
+      const acc = await getUserPerms(req);
+      if (!acc.admin) {
+        const cur = await provider.getDomainRecordInfo(recordId);
+        if (!cur) return { code: -1, msg: '无权限操作该记录' };
+        const err = writeErr(acc, info.domain.name, cur.Name);
+        if (err) return { code: -1, msg: err };
+      }
+    }
     if (typeof provider.updateDomainRecordRemark === 'function') {
       const ok = await provider.updateDomainRecordRemark(recordId, remark);
       if (!ok) return { code: -1, msg: provider.getError() };
@@ -154,6 +221,17 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    {
+      const acc = await getUserPerms(req);
+      if (!acc.admin) {
+        const cur = await (provider as any).getDomainRecordInfo(recordId);
+        if (!cur) return { code: -1, msg: '无权限操作该记录' };
+        let e = writeErr(acc, info.domain.name, cur.Name);
+        if (e) return { code: -1, msg: e };
+        e = writeErr(acc, info.domain.name, name);
+        if (e) return { code: -1, msg: '新记录超出授权子域名范围' };
+      }
+    }
     const ok = await provider.updateDomainRecord(recordId, name, type, value, line || 'default', Number(ttl || 600), Number(mx || 1), weight ?? null, remark || null);
     if (!ok) return { code: -1, msg: provider.getError() };
     return { code: 0, msg: '修改记录成功' };
@@ -165,6 +243,15 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    {
+      const acc = await getUserPerms(req);
+      if (!acc.admin) {
+        const cur = await (provider as any).getDomainRecordInfo(recordId);
+        if (!cur) return { code: -1, msg: '无权限操作该记录' };
+        const e = writeErr(acc, info.domain.name, cur.Name);
+        if (e) return { code: -1, msg: e };
+      }
+    }
     const ok = await provider.deleteDomainRecord(recordId);
     if (!ok) return { code: -1, msg: provider.getError() };
     await bumpRecordCount(id, -1);
@@ -178,6 +265,15 @@ export default async function domainRoutes(app: FastifyInstance) {
     if (!info) return { code: -1, msg: '域名或账户不存在' };
     const provider = getDnsProvider(info.account.type, safeJson(info.account.config), info.domain.name, info.domain.thirdid);
     if (!provider) return { code: -1, msg: '该厂商暂未支持' };
+    {
+      const acc = await getUserPerms(req);
+      if (!acc.admin) {
+        const cur = await (provider as any).getDomainRecordInfo(recordId);
+        if (!cur) return { code: -1, msg: '无权限操作该记录' };
+        const e = writeErr(acc, info.domain.name, cur.Name);
+        if (e) return { code: -1, msg: e };
+      }
+    }
     const ok = await provider.setDomainRecordStatus(recordId, status);
     if (!ok) return { code: -1, msg: provider.getError() };
     return { code: 0, msg: '状态更新成功' };

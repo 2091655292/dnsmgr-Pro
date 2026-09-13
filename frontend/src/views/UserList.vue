@@ -47,8 +47,16 @@
         <n-form-item label="用户等级">
           <n-select v-model:value="form.level" :options="levelOptions" style="width: 160px" />
         </n-form-item>
-        <n-form-item v-if="form.level === 1" label="域名权限">
-          <n-select v-model:value="form.permission" multiple filterable :options="domainOptions" placeholder="请选择该用户可管理解析的域名" />
+        <n-form-item v-if="form.level === 1" label="子域名分配">
+          <div class="perm-list">
+            <div v-for="(p, idx) in form.permission" :key="idx" class="perm-row">
+              <n-select v-model:value="p.domain" :options="domainOptions" placeholder="选择域名" filterable style="width: 170px" />
+              <n-input v-model:value="p.sub" placeholder="子域名前缀，如 user1 或 a.user1，留空=整域名" />
+              <n-select v-model:value="p.readonly" :options="modeOptions" style="width: 110px" />
+              <n-button size="small" type="error" quaternary @click="removePerm(idx)">删除</n-button>
+            </div>
+            <n-button size="small" dashed @click="addPerm">添加子域名授权</n-button>
+          </div>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -88,6 +96,10 @@ const apiOptions = [
 const levelOptions = [
   { label: '普通用户', value: 1 },
   { label: '管理员', value: 2 },
+];
+const modeOptions = [
+  { label: '自由解析', value: 0 },
+  { label: '仅查看', value: 1 },
 ];
 
 const pagination = reactive({
@@ -185,6 +197,12 @@ function clearSearch() {
 function genPassword() {
   form.password = randomStr(12);
 }
+function addPerm() {
+  form.permission.push({ domain: '', sub: '', readonly: 0 });
+}
+function removePerm(idx: number) {
+  form.permission.splice(idx, 1);
+}
 function genApikey() {
   form.apikey = randomStr(16);
 }
@@ -216,7 +234,9 @@ async function openEdit(row: any) {
     form.is_api = res.data.is_api;
     form.apikey = res.data.apikey || '';
     form.level = res.data.level;
-    form.permission = res.data.permission || [];
+    form.permission = (res.data.permission || []).map((p: any) =>
+      typeof p === 'string' ? { domain: p, sub: '', readonly: 0 } : { domain: p.domain, sub: p.sub || '', readonly: Number(p.readonly || 0) },
+    );
     showEdit.value = true;
   } else message.error(res.msg);
 }
@@ -279,5 +299,19 @@ onMounted(() => {
 .title {
   font-size: 16px;
   font-weight: 600;
+}
+.perm-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.perm-row .n-input {
+  flex: 1;
 }
 </style>

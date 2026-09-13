@@ -3,6 +3,7 @@ import { query, table } from './db.js';
 // 启动时幂等迁移：为多用户注册系统补齐表结构与字段，已存在则跳过。
 export async function migrate(): Promise<void> {
   await ensureColumn('user', 'email', 'varchar(128) DEFAULT NULL');
+  await ensureColumn('permission', 'readonly', "tinyint(1) NOT NULL DEFAULT '0'");
 
   await query(
     `CREATE TABLE IF NOT EXISTS ${table('reg_code')} (

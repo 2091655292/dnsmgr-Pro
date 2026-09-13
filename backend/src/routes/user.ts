@@ -13,6 +13,31 @@ function insertAndGetId(sql: string, params: any[]): Promise<number> {
   return query(sql, params).then((r: any) => r.insertId || 0);
 }
 
+interface PermItem {
+  domain: string;
+  sub: string | null;
+  readonly: number;
+}
+
+function normalizePermission(input: any[]): PermItem[] {
+  const out: PermItem[] = [];
+  for (const item of input || []) {
+    if (typeof item === 'string') {
+      out.push({ domain: item, sub: null, readonly: 0 });
+    } else if (item && typeof item === 'object' && item.domain) {
+      out.push({ domain: item.domain, sub: item.sub || null, readonly: Number(item.readonly || 0) });
+    }
+  }
+  return out;
+}
+
+async function savePermissions(uid: number, input: any[]) {
+  await query(`DELETE FROM ${table('permission')} WHERE uid = ?`, [uid]);
+  for (const p of normalizePermission(input)) {
+    await query(`INSERT INTO ${table('permission')} (uid, domain, sub, readonly) VALUES (?, ?, ?, ?)`, [uid, p.domain, p.sub, p.readonly]);
+  }
+}
+
 export default async function userRoutes(app: FastifyInstance) {
   const auth = authenticate(app);
 
@@ -58,8 +83,8 @@ export default async function userRoutes(app: FastifyInstance) {
     const id = Number(req.params.id);
     const row = await queryOne(`SELECT id, username, is_api, apikey, level, status, totp_open FROM ${table('user')} WHERE id = ?`, [id]);
     if (!row) return { code: -1, msg: '用户不存在' };
-    const perms = await query(`SELECT domain FROM ${table('permission')} WHERE uid = ?`, [id]);
-    row.permission = perms.map((p: any) => p.domain);
+    const perms = await query(`SELECT domain, sub, readonly FROM ${table('permission')} WHERE uid = ?`, [id]);
+    row.permission = perms.map((p: any) => ({ domain: p.domain, sub: p.sub || null, readonly: Number(p.readonly || 0) }));
     return { code: 0, data: row };
   });
 
@@ -83,10 +108,8 @@ export default async function userRoutes(app: FastifyInstance) {
       `INSERT INTO ${table('user')} (username, password, is_api, apikey, level, regtime, status) VALUES (?, ?, ?, ?, ?, NOW(), 1)`,
       [username, bcrypt.hashSync(password, 10), isApi, apikey, level]
     );
-    if (level === 1 && permission.length > 0) {
-      for (const domain of permission) {
-        await query(`INSERT INTO ${table('permission')} (uid, domain) VALUES (?, ?)`, [uid, domain]);
-      }
+    if (level === 1) {
+      await savePermissions(uid, permission);
     }
     return { code: 0, msg: '添加用户成功！' };
   });
@@ -115,11 +138,10 @@ export default async function userRoutes(app: FastifyInstance) {
     }
 
     await query(`UPDATE ${table('user')} SET username = ?, is_api = ?, apikey = ?, level = ? WHERE id = ?`, [username, isApi, apikey, level, id]);
-    await query(`DELETE FROM ${table('permission')} WHERE uid = ?`, [id]);
-    if (level === 1 && permission.length > 0) {
-      for (const domain of permission) {
-        await query(`INSERT INTO ${table('permission')} (uid, domain) VALUES (?, ?)`, [id, domain]);
-      }
+    if (level === 1) {
+      await savePermissions(id, permission);
+    } else {
+      await query(`DELETE FROM ${table('permission')} WHERE uid = ?`, [id]);
     }
     if (repwd) {
       await query(`UPDATE ${table('user')} SET password = ? WHERE id = ?`, [bcrypt.hashSync(repwd, 10), id]);
