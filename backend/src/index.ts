@@ -26,6 +26,13 @@ import { executeAll as runOptimizeAll } from './lib/optimize/optimizeService.js'
 import { executeAll as runScheduleAll } from './lib/schedule/scheduleService.js';
 import { expireNoticeTask } from './lib/expire/expireNoticeService.js';
 
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[backend] 未捕获的异步异常:', reason?.message || reason);
+});
+process.on('uncaughtException', (err: any) => {
+  console.error('[backend] 未捕获异常:', err?.message || err);
+});
+
 function resolveWebDir(): string {
   if (process.env.DNSMGR_WEB_DIR) return process.env.DNSMGR_WEB_DIR;
   const candidates = [
