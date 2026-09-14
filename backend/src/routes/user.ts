@@ -90,7 +90,7 @@ export default async function userRoutes(app: FastifyInstance) {
   app.get('/api/users/:id', auth, async (req: any) => {
     if (!checkLevel(req.user, 2)) return { code: -1, msg: '无权限' };
     const id = Number(req.params.id);
-    const row = await queryOne(`SELECT id, username, is_api, apikey, level, status, totp_open FROM ${table('user')} WHERE id = ?`, [id]);
+    const row = await queryOne(`SELECT id, username, is_api, apikey, level, status, totp_open, check_whole FROM ${table('user')} WHERE id = ?`, [id]);
     if (!row) return { code: -1, msg: '用户不存在' };
     const perms = await query(`SELECT domain, sub, readonly, expiretime FROM ${table('permission')} WHERE uid = ?`, [id]);
     row.permission = perms.map((p: any) => ({ domain: p.domain, sub: p.sub || null, readonly: Number(p.readonly || 0), expiretime: p.expiretime || null }));
@@ -106,6 +106,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const isApi = Number(b.is_api || 0);
     const apikey = (b.apikey || '').trim();
     const level = Number(b.level || 1);
+    const checkWhole = Number(b.check_whole || 0);
     const permission = Array.isArray(b.permission) ? b.permission : [];
 
     if (!username || !password) return { code: -1, msg: '用户名或密码不能为空' };
@@ -114,8 +115,8 @@ export default async function userRoutes(app: FastifyInstance) {
     if (exists) return { code: -1, msg: '用户名已存在' };
 
     const uid = await insertAndGetId(
-      `INSERT INTO ${table('user')} (username, password, is_api, apikey, level, regtime, status) VALUES (?, ?, ?, ?, ?, NOW(), 1)`,
-      [username, bcrypt.hashSync(password, 10), isApi, apikey, level]
+      `INSERT INTO ${table('user')} (username, password, is_api, apikey, level, check_whole, regtime, status) VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)`,
+      [username, bcrypt.hashSync(password, 10), isApi, apikey, level, checkWhole]
     );
     if (level === 1) {
       await savePermissions(uid, permission);
@@ -136,6 +137,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const apikey = (b.apikey || '').trim();
     let level = Number(b.level || 1);
     const repwd = (b.repwd || '').trim();
+    const checkWhole = Number(b.check_whole || 0);
     const permission = Array.isArray(b.permission) ? b.permission : [];
 
     if (!username) return { code: -1, msg: '用户名不能为空' };
@@ -146,7 +148,7 @@ export default async function userRoutes(app: FastifyInstance) {
       level = 2;
     }
 
-    await query(`UPDATE ${table('user')} SET username = ?, is_api = ?, apikey = ?, level = ? WHERE id = ?`, [username, isApi, apikey, level, id]);
+    await query(`UPDATE ${table('user')} SET username = ?, is_api = ?, apikey = ?, level = ?, check_whole = ? WHERE id = ?`, [username, isApi, apikey, level, checkWhole, id]);
     if (level === 1) {
       await savePermissions(id, permission);
     } else {

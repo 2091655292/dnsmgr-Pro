@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_user` (
   `totp_open` tinyint(1) NOT NULL DEFAULT '0',
   `totp_secret` varchar(100) DEFAULT NULL,
   `status` tinyint(1) NOT NULL DEFAULT '1',
+  `check_whole` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 AUTO_INCREMENT=1000;
@@ -320,6 +321,7 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_dns_check_task` (
   `id` int(11) unsigned NOT NULL auto_increment,
   `name` varchar(100) DEFAULT NULL,
   `did` int(11) unsigned NOT NULL,
+  `uid` int(11) unsigned NOT NULL DEFAULT '0',
   `types` varchar(255) DEFAULT NULL,
   `cycle` varchar(20) NOT NULL DEFAULT 'daily',
   `interval_min` int(11) NOT NULL DEFAULT '0',

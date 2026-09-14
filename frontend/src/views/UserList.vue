@@ -47,6 +47,10 @@
         <n-form-item label="用户等级">
           <n-select v-model:value="form.level" :options="levelOptions" style="width: 160px" />
         </n-form-item>
+        <n-form-item v-if="form.level === 1" label="检测整域名">
+          <n-switch v-model:value="form.check_whole" />
+          <n-text depth="3" style="font-size: 12px; margin-left: 8px">开启后该用户可对授权域名设置检测整个域名的全部子域名</n-text>
+        </n-form-item>
         <n-form-item v-if="form.level === 1" label="子域名分配">
           <div class="perm-list">
             <div v-for="(p, idx) in form.permission" :key="idx" class="perm-item">
@@ -89,7 +93,7 @@ const kw = ref('');
 const showEdit = ref(false);
 const editingId = ref<number | null>(null);
 const saving = ref(false);
-const form = reactive<any>({ username: '', password: '', repwd: '', is_api: 0, apikey: '', level: 1, permission: [] });
+const form = reactive<any>({ username: '', password: '', repwd: '', is_api: 0, apikey: '', level: 1, check_whole: false, permission: [] });
 const domainOptions = ref<any[]>([]);
 
 const apiOptions = [
@@ -224,6 +228,7 @@ function openAdd() {
   form.is_api = 0;
   form.apikey = genApikey();
   form.level = 1;
+  form.check_whole = false;
   form.permission = [];
   showEdit.value = true;
 }
@@ -237,6 +242,7 @@ async function openEdit(row: any) {
     form.is_api = res.data.is_api;
     form.apikey = res.data.apikey || '';
     form.level = res.data.level;
+    form.check_whole = res.data.check_whole == 1;
     form.permission = (res.data.permission || []).map((p: any) =>
       typeof p === 'string' ? { domain: p, sub: '', readonly: 0, expiretime: null } : { domain: p.domain, sub: p.sub || '', readonly: Number(p.readonly || 0), expiretime: p.expiretime || null },
     );
@@ -249,7 +255,10 @@ async function save() {
   if (form.is_api === 1 && !form.apikey) return message.warning('API密钥不能为空');
   saving.value = true;
   const body: any = { username: form.username, is_api: form.is_api, apikey: form.apikey, level: form.level };
-  if (form.level === 1) body.permission = form.permission;
+  if (form.level === 1) {
+    body.permission = form.permission;
+    body.check_whole = form.check_whole ? 1 : 0;
+  }
   if (editingId.value) {
     body.repwd = form.repwd;
   } else {

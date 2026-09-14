@@ -193,7 +193,7 @@ async function load() {
 }
 
 async function loadDomains() {
-  const res = await api<any>('GET', '/domains');
+  const res = await api<any>('GET', '/dns-check/domains');
   if (res.code === 0) {
     domainOptions.value = (res.data || []).map((d: any) => ({ label: d.name, value: d.id }));
   }

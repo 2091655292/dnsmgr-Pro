@@ -1,6 +1,7 @@
 import { query, queryOne, table } from '../../db.js';
 import { getDnsProvider } from './factory.js';
 import { localResolve, recordValueMatches } from './localResolve.js';
+import { getUserPermissions, matchPermission, type SubPermission } from '../../auth.js';
 import { configGet } from '../../config.js';
 import { sendMail } from '../monitor/msgNotice.js';
 import { fmtDateTime } from '../util.js';
@@ -22,14 +23,29 @@ export interface CheckIssue {
   actual: string[];
 }
 
-/** 本地检测某域名全部记录，返回异常项 */
-export async function checkDomainRecords(did: number, types?: string[]): Promise<{ total: number; issues: CheckIssue[]; error?: string }> {
+/** 本地检测某域名记录，返回异常项；按 uid 权限范围过滤（管理员或开启检测整个域名则全量） */
+export async function checkDomainRecords(did: number, types?: string[], uid?: number): Promise<{ total: number; issues: CheckIssue[]; error?: string }> {
   const d: any = await queryOne(`SELECT * FROM ${table('domain')} WHERE id = ?`, [did]);
   if (!d) return { total: 0, issues: [], error: '域名不存在' };
   const acct: any = await queryOne(`SELECT * FROM ${table('account')} WHERE id = ?`, [d.aid]);
   if (!acct) return { total: 0, issues: [], error: '账户不存在' };
   const provider: any = getDnsProvider(acct.type, safeJson(acct.config), d.name, d.thirdid);
   if (!provider) return { total: 0, issues: [], error: '该厂商暂未支持' };
+
+  // 权限范围：未传 uid 视为管理员（默认全量），否则按用户是否为管理员/是否开启检测整个域名决定
+  let scopeAdmin = true;
+  let scopePerms: SubPermission[] = [];
+  if (uid != null) {
+    const u: any = await queryOne(`SELECT level, check_whole FROM ${table('user')} WHERE id = ?`, [uid]);
+    const isAdmin = Number(u?.level ?? 0) >= 2;
+    const whole = Number(u?.check_whole ?? 0) === 1;
+    if (isAdmin || whole) {
+      scopeAdmin = true;
+    } else {
+      scopeAdmin = false;
+      scopePerms = await getUserPermissions(uid);
+    }
+  }
 
   // 拉全部分页记录
   let list: any[] = [];
@@ -47,6 +63,7 @@ export async function checkDomainRecords(did: number, types?: string[]): Promise
   for (const r of list) {
     if (typeSet && !typeSet.has(r.Type)) continue;
     if (r.Status === '0') continue;
+    if (!scopeAdmin && matchPermission(scopePerms, d.name, String(r.Name ?? '')) < 0) continue;
     const value = Array.isArray(r.Value) ? r.Value[0] : r.Value;
     if (value === undefined || value === null || value === '') continue;
     const fullDomain = (r.Name === '@' ? d.name : `${r.Name}.${d.name}`).toLowerCase();
@@ -86,7 +103,7 @@ export async function executeCheckTasks(): Promise<number> {
   );
   let run = 0;
   for (const t of rows) {
-    const { issues, error } = await checkDomainRecords(t.did, splitTypes(t.types));
+    const { issues } = await checkDomainRecords(t.did, splitTypes(t.types), t.uid);
     if (issues && issues.length) {
       await notifyHijack(t, issues);
     }

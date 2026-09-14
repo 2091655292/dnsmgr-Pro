@@ -3,6 +3,7 @@ import { query, table } from './db.js';
 // 启动时幂等迁移：为多用户注册系统补齐表结构与字段，已存在则跳过。
 export async function migrate(): Promise<void> {
   await ensureColumn('user', 'email', 'varchar(128) DEFAULT NULL');
+  await ensureColumn('user', 'check_whole', "tinyint(1) NOT NULL DEFAULT '0'");
   await ensureColumn('permission', 'readonly', "tinyint(1) NOT NULL DEFAULT '0'");
   await ensureColumn('permission', 'expiretime', 'datetime DEFAULT NULL');
 
@@ -73,6 +74,7 @@ export async function migrate(): Promise<void> {
       id int(11) unsigned NOT NULL AUTO_INCREMENT,
       name varchar(100) DEFAULT NULL,
       did int(11) unsigned NOT NULL,
+      uid int(11) unsigned NOT NULL DEFAULT '0',
       types varchar(255) DEFAULT NULL,
       cycle varchar(20) NOT NULL DEFAULT 'daily',
       interval_min int(11) NOT NULL DEFAULT '0',
@@ -83,9 +85,11 @@ export async function migrate(): Promise<void> {
       next_run datetime DEFAULT NULL,
       addtime datetime NOT NULL,
       PRIMARY KEY (id),
-      KEY did (did)
+      KEY did (did),
+      KEY uid (uid)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   );
+  await ensureColumn('dns_check_task', 'uid', "int(11) unsigned NOT NULL DEFAULT '0'");
 }
 
 async function ensureColumn(tableName: string, column: string, definition: string): Promise<void> {
