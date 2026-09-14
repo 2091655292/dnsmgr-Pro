@@ -27,7 +27,11 @@
           <n-input v-model:value="form.name" placeholder="可选，便于识别" />
         </n-form-item>
         <n-form-item label="域名">
-          <n-select v-model:value="form.did" :options="domainOptions" filterable placeholder="选择要检测的域名" />
+          <n-select v-model:value="form.did" :options="domainOptions" filterable placeholder="选择要检测的域名" @update:value="onDomainChange" />
+        </n-form-item>
+        <n-form-item label="子域名">
+          <n-select v-model:value="form.sub" :options="subOptions" filterable clearable placeholder="留空=检测整个域名" :disabled="!form.did" />
+          <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px">选择后检测该子域名的下级（三级检测四级及以上，四级检测五级及以上）</n-text>
         </n-form-item>
         <n-form-item label="检测类型">
           <n-checkbox-group v-model:value="form.types">
@@ -97,13 +101,14 @@ const loading = ref(false);
 const saving = ref(false);
 const tasks = ref<any[]>([]);
 const domainOptions = ref<any[]>([]);
+const subOptions = ref<any[]>([]);
 const showEdit = ref(false);
 const editingId = ref<number | null>(null);
 const showResult = ref(false);
 const runningResult = ref<any>({ total: 0, issues: [], error: '' });
 const typeList = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA'];
 
-const form = reactive<any>({ name: '', did: null, types: [], cycle: 'daily', runTime: 4 * 3600000, intervalMin: 60, noticeEmail: '', active: true });
+const form = reactive<any>({ name: '', did: null, sub: null, types: [], cycle: 'daily', runTime: 4 * 3600000, intervalMin: 60, noticeEmail: '', active: true });
 
 function hmToTs(hm: string): number {
   const [h, m] = String(hm || '04:00').split(':').map((n) => Number(n) || 0);
@@ -120,7 +125,12 @@ function fmtTs(v: number | null): string {
 const columns = [
   { title: 'ID', key: 'id', width: 60 },
   { title: '名称', key: 'name', width: 150, render: (row: any) => row.name || '-' },
-  { title: '域名', key: 'domain_name', width: 180 },
+  {
+    title: '域名',
+    key: 'domain_name',
+    width: 200,
+    render: (row: any) => (row.sub ? `${row.sub}.${row.domain_name}` : row.domain_name || '-'),
+  },
   {
     title: '检测类型',
     key: 'types',
@@ -199,9 +209,24 @@ async function loadDomains() {
   }
 }
 
+async function loadSubDomains(did: number | null) {
+  subOptions.value = [];
+  if (!did) return;
+  const res = await api<any>('GET', `/dns-check/domains/${did}/subs`);
+  if (res.code === 0 && Array.isArray(res.data)) {
+    subOptions.value = res.data.map((s: string) => ({ label: s, value: s }));
+  }
+}
+
+function onDomainChange(v: number) {
+  form.sub = null;
+  loadSubDomains(v);
+}
+
 function openAdd() {
   editingId.value = null;
-  Object.assign(form, { name: '', did: null, types: [], cycle: 'daily', runTime: 4 * 3600000, intervalMin: 60, noticeEmail: '', active: true });
+  subOptions.value = [];
+  Object.assign(form, { name: '', did: null, sub: null, types: [], cycle: 'daily', runTime: 4 * 3600000, intervalMin: 60, noticeEmail: '', active: true });
   showEdit.value = true;
 }
 
@@ -209,6 +234,7 @@ function openEdit(row: any) {
   editingId.value = row.id;
   form.name = row.name || '';
   form.did = row.did;
+  form.sub = row.sub || null;
   form.types = String(row.types || '').split(/[,;，；]/).map((x: string) => x.trim()).filter(Boolean);
   form.cycle = row.cycle === 'interval' ? 'interval' : 'daily';
   form.runTime = hmToTs(row.run_time);
@@ -216,6 +242,7 @@ function openEdit(row: any) {
   form.noticeEmail = row.notice_email || '';
   form.active = row.active == 1;
   showEdit.value = true;
+  loadSubDomains(row.did);
 }
 
 async function save() {
@@ -227,6 +254,7 @@ async function save() {
     const body: any = {
       name: form.name,
       did: form.did,
+      sub: form.sub || '',
       types: form.types.join(','),
       cycle: form.cycle,
       notice_email: form.noticeEmail,

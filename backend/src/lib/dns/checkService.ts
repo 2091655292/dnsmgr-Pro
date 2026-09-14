@@ -1,7 +1,7 @@
 import { query, queryOne, table } from '../../db.js';
 import { getDnsProvider } from './factory.js';
 import { localResolve, recordValueMatches } from './localResolve.js';
-import { getUserPermissions, type SubPermission } from '../../auth.js';
+import { getUserPermissions } from '../../auth.js';
 import { configGet } from '../../config.js';
 import { sendMail } from '../monitor/msgNotice.js';
 import { fmtDateTime } from '../util.js';
@@ -23,8 +23,43 @@ export interface CheckIssue {
   actual: string[];
 }
 
-/** 本地检测某域名记录，返回异常项；按 uid 权限范围过滤（管理员或开启检测整个域名则全量） */
-export async function checkDomainRecords(did: number, types?: string[], uid?: number): Promise<{ total: number; issues: CheckIssue[]; error?: string }> {
+/** 拉取某域名全部记录（分页） */
+async function fetchAllRecords(provider: any): Promise<any[]> {
+  let list: any[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await provider.getDomainRecords(page, 500, null, null, null, null, null, null);
+    if (res === false || !res.list || !res.list.length) break;
+    list = list.concat(res.list);
+    if (res.total && list.length >= res.total) break;
+  }
+  return list;
+}
+
+/** 某域名的可选检测子域名（记录中的非 @ 子域名前缀） */
+export async function listSubDomains(did: number): Promise<string[]> {
+  const d: any = await queryOne(`SELECT * FROM ${table('domain')} WHERE id = ?`, [did]);
+  if (!d) return [];
+  const acct: any = await queryOne(`SELECT * FROM ${table('account')} WHERE id = ?`, [d.aid]);
+  if (!acct) return [];
+  const provider: any = getDnsProvider(acct.type, safeJson(acct.config), d.name, d.thirdid);
+  if (!provider) return [];
+  const list = await fetchAllRecords(provider);
+  const subs = new Set<string>();
+  for (const r of list) {
+    const name = String(r.Name ?? '').trim();
+    if (!name || name === '@' || name.startsWith('*')) continue;
+    subs.add(name.toLowerCase().replace(/\.+$/, ''));
+  }
+  return [...subs].sort();
+}
+
+/** 本地检测某域名记录，返回异常项 */
+export async function checkDomainRecords(
+  did: number,
+  types?: string[],
+  uid?: number,
+  sub?: string | null,
+): Promise<{ total: number; issues: CheckIssue[]; error?: string }> {
   const d: any = await queryOne(`SELECT * FROM ${table('domain')} WHERE id = ?`, [did]);
   if (!d) return { total: 0, issues: [], error: '域名不存在' };
   const acct: any = await queryOne(`SELECT * FROM ${table('account')} WHERE id = ?`, [d.aid]);
@@ -34,38 +69,30 @@ export async function checkDomainRecords(did: number, types?: string[], uid?: nu
 
   // 权限范围：未传 uid 视为管理员（默认全量），否则按用户是否为管理员/是否开启检测整个域名决定
   let scopeAdmin = true;
-  let scopePerms: SubPermission[] = [];
   if (uid != null) {
     const u: any = await queryOne(`SELECT level, check_whole FROM ${table('user')} WHERE id = ?`, [uid]);
     const isAdmin = Number(u?.level ?? 0) >= 2;
     const whole = Number(u?.check_whole ?? 0) === 1;
-    if (isAdmin || whole) {
-      scopeAdmin = true;
-    } else {
-      scopeAdmin = false;
-      scopePerms = await getUserPermissions(uid);
-    }
+    scopeAdmin = isAdmin || whole;
   }
 
-  // 拉全部分页记录
-  let list: any[] = [];
-  let total = 0;
-  for (let page = 1; page <= 10; page++) {
-    const res = await provider.getDomainRecords(page, 500, null, null, null, null, null, null);
-    if (res === false || !res.list || !res.list.length) break;
-    list = list.concat(res.list);
-    total = res.total || list.length;
-    if (list.length >= total) break;
-  }
+  const list = await fetchAllRecords(provider);
 
-  // 普通用户接入域名集合：只检测这些接入域名的「严格子域名」（比接入域名多至少一层）
-  const accessDomains: string[] = [];
-  if (!scopeAdmin) {
-    for (const p of scopePerms) {
-      if (p.domain !== d.name) continue;
-      accessDomains.push((p.sub ? `${p.sub}.${d.name}` : d.name).toLowerCase());
-    }
+  const subNorm = sub ? String(sub).trim().toLowerCase().replace(/\.+$/, '') : '';
+  // 检测目标域名集合：普通用户未选子域名时为其所有接入域名，否则为指定子域名
+  let targets: string[] = [];
+  if (scopeAdmin) {
+    if (subNorm) targets = [`${subNorm}.${d.name}`.toLowerCase()];
+    else targets = [];
+  } else {
+    const perms = await getUserPermissions(uid as number);
+    const access = perms
+      .filter((p) => p.domain === d.name)
+      .map((p) => (p.sub ? `${p.sub}.${d.name}` : d.name).toLowerCase());
+    if (subNorm) targets = [`${subNorm}.${d.name}`.toLowerCase()];
+    else targets = access;
   }
+  const wholeDomain = scopeAdmin && !subNorm;
 
   const typeSet = types && types.length ? new Set(types) : null;
   const issues: CheckIssue[] = [];
@@ -76,8 +103,8 @@ export async function checkDomainRecords(did: number, types?: string[], uid?: nu
     const value = Array.isArray(r.Value) ? r.Value[0] : r.Value;
     if (value === undefined || value === null || value === '') continue;
     const fullDomain = (r.Name === '@' ? d.name : `${r.Name}.${d.name}`).toLowerCase();
-    // 普通用户仅检测接入域名的严格子域名（接入二级域名→检测三级及以上；接入三级→检测四级及以上）
-    if (!scopeAdmin && !accessDomains.some((a) => fullDomain.endsWith('.' + a))) continue;
+    // 校验层级：管理员未选子域名→整个域名；否则目标域名的严格子域名（比目标多至少一层）
+    if (!wholeDomain && !targets.some((t) => fullDomain.endsWith('.' + t))) continue;
     checked++;
     const actual = await localResolve(fullDomain, r.Type);
     if (!actual.length) {
@@ -115,7 +142,7 @@ export async function executeCheckTasks(): Promise<number> {
   );
   let run = 0;
   for (const t of rows) {
-    const { issues } = await checkDomainRecords(t.did, splitTypes(t.types), t.uid);
+    const { issues } = await checkDomainRecords(t.did, splitTypes(t.types), t.uid, t.sub);
     if (issues && issues.length) {
       await notifyHijack(t, issues);
     }

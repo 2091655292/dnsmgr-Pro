@@ -75,6 +75,7 @@ export async function migrate(): Promise<void> {
       name varchar(100) DEFAULT NULL,
       did int(11) unsigned NOT NULL,
       uid int(11) unsigned NOT NULL DEFAULT '0',
+      sub varchar(255) DEFAULT NULL,
       types varchar(255) DEFAULT NULL,
       cycle varchar(20) NOT NULL DEFAULT 'daily',
       interval_min int(11) NOT NULL DEFAULT '0',
@@ -90,6 +91,7 @@ export async function migrate(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
   );
   await ensureColumn('dns_check_task', 'uid', "int(11) unsigned NOT NULL DEFAULT '0'");
+  await ensureColumn('dns_check_task', 'sub', 'varchar(255) DEFAULT NULL');
 }
 
 async function ensureColumn(tableName: string, column: string, definition: string): Promise<void> {

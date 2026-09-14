@@ -322,6 +322,7 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_dns_check_task` (
   `name` varchar(100) DEFAULT NULL,
   `did` int(11) unsigned NOT NULL,
   `uid` int(11) unsigned NOT NULL DEFAULT '0',
+  `sub` varchar(255) DEFAULT NULL,
   `types` varchar(255) DEFAULT NULL,
   `cycle` varchar(20) NOT NULL DEFAULT 'daily',
   `interval_min` int(11) NOT NULL DEFAULT '0',
