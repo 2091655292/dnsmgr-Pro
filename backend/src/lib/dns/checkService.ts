@@ -1,7 +1,7 @@
 import { query, queryOne, table } from '../../db.js';
 import { getDnsProvider } from './factory.js';
 import { localResolve, recordValueMatches } from './localResolve.js';
-import { getUserPermissions, matchPermission, type SubPermission } from '../../auth.js';
+import { getUserPermissions, type SubPermission } from '../../auth.js';
 import { configGet } from '../../config.js';
 import { sendMail } from '../monitor/msgNotice.js';
 import { fmtDateTime } from '../util.js';
@@ -58,15 +58,27 @@ export async function checkDomainRecords(did: number, types?: string[], uid?: nu
     if (list.length >= total) break;
   }
 
+  // 普通用户接入域名集合：只检测这些接入域名的「严格子域名」（比接入域名多至少一层）
+  const accessDomains: string[] = [];
+  if (!scopeAdmin) {
+    for (const p of scopePerms) {
+      if (p.domain !== d.name) continue;
+      accessDomains.push((p.sub ? `${p.sub}.${d.name}` : d.name).toLowerCase());
+    }
+  }
+
   const typeSet = types && types.length ? new Set(types) : null;
   const issues: CheckIssue[] = [];
+  let checked = 0;
   for (const r of list) {
     if (typeSet && !typeSet.has(r.Type)) continue;
     if (r.Status === '0') continue;
-    if (!scopeAdmin && matchPermission(scopePerms, d.name, String(r.Name ?? '')) < 0) continue;
     const value = Array.isArray(r.Value) ? r.Value[0] : r.Value;
     if (value === undefined || value === null || value === '') continue;
     const fullDomain = (r.Name === '@' ? d.name : `${r.Name}.${d.name}`).toLowerCase();
+    // 普通用户仅检测接入域名的严格子域名（接入二级域名→检测三级及以上；接入三级→检测四级及以上）
+    if (!scopeAdmin && !accessDomains.some((a) => fullDomain.endsWith('.' + a))) continue;
+    checked++;
     const actual = await localResolve(fullDomain, r.Type);
     if (!actual.length) {
       issues.push({ name: r.Name, type: r.Type, value: String(value), status: 'not_found', actual: [] });
@@ -76,7 +88,7 @@ export async function checkDomainRecords(did: number, types?: string[], uid?: nu
       issues.push({ name: r.Name, type: r.Type, value: String(value), status: 'mismatch', actual });
     }
   }
-  return { total: list.length, issues };
+  return { total: checked, issues };
 }
 
 /** 根据任务配置计算下一次执行时间 */
